@@ -1,0 +1,26 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# Release build output
+/build/
+
+# CodeGraph local machine data (see .codegraph/.gitignore)
+.codegraph/
+
+# WordPress integration environment
+/wp-env/
+/.wp-env/
+
+# PHPUnit
+/.phpunit.cache/
+
+# Husky generated scripts
+/.husky/_/
+
+# Composer / npm artifacts
+composer.phar
+*.log
+
+# OS
+.DS_Store

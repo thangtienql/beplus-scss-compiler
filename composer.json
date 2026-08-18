@@ -1,0 +1,45 @@
+{
+  "name": "beplus/scss-compiler",
+  "description": "WordPress plugin that compiles SCSS to CSS.",
+  "type": "wordpress-plugin",
+  "license": "GPL-2.0-or-later",
+  "keywords": [
+    "wordpress",
+    "plugin",
+    "scss",
+    "sass",
+    "css"
+  ],
+  "require": {
+    "php": ">=7.4"
+  },
+  "require-dev": {
+    "phpcompatibility/php-compatibility": "^9.3",
+    "phpstan/extension-installer": "^1.4",
+    "phpstan/phpstan": "^2.2",
+    "phpstan/phpstan-phpunit": "^2.0",
+    "phpunit/phpunit": "^9.6 || ^10.5 || ^11.0",
+    "szepeviktor/phpstan-wordpress": "^2.0",
+    "wp-coding-standards/wpcs": "^3.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "Beplus\\ScssCompiler\\": "src/"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true,
+      "phpstan/extension-installer": true
+    },
+    "sort-packages": true
+  },
+  "scripts": {
+    "analyse": "phpstan analyse",
+    "lint": "phpcs",
+    "lint:fix": "phpcbf",
+    "test": "phpunit --testsuite unit",
+    "test:integration": "phpunit --testsuite integration",
+    "i18n:pot": "wp i18n make-pot . languages/beplus-scss.pot"
+  }
+}
