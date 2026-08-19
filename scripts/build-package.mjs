@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import archiver from "archiver";
 
@@ -8,7 +8,8 @@ const root = resolve(import.meta.dirname, "..");
 const pluginSlug = "beplus-scss-compiler";
 const buildDir = join(root, "build");
 const stagingDir = join(buildDir, pluginSlug);
-const zipPath = join(buildDir, `${pluginSlug}.zip`);
+const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+const zipPath = join(buildDir, `${pluginSlug}-${version}.zip`);
 
 const publishable = [
 	"src",
@@ -17,6 +18,7 @@ const publishable = [
 	"uninstall.php",
 	"readme.txt",
 	"composer.json",
+	"composer.lock",
 ];
 
 try {
@@ -47,7 +49,15 @@ try {
 		archive.finalize().catch(rejectPromise);
 	});
 
-	console.log(`Built ${zipPath}`);
+	console.log(`Built ${zipPath} (${formatSize(statSync(zipPath).size)})`);
 } finally {
 	rmSync(stagingDir, { recursive: true, force: true });
+}
+
+function formatSize(bytes) {
+	const mb = bytes / (1024 * 1024);
+	if (mb >= 1) {
+		return `${mb.toFixed(2)} MB`;
+	}
+	return `${(bytes / 1024).toFixed(1)} KB`;
 }

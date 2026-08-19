@@ -1,13 +1,14 @@
 {
   "name": "beplus-scss-compiler",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Dev tooling for the Beplus SCSS Compiler WordPress plugin.",
   "scripts": {
     "lint": "composer lint",
     "test": "composer test",
     "wp-env": "wp-env",
-    "build": "node scripts/build-package.mjs",
+    "build": "node scripts/build-assets.mjs",
+    "build:package": "node scripts/build-package.mjs",
     "codegraph:init": "codegraph init",
     "prepare": "husky"
   },

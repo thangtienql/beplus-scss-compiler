@@ -63,7 +63,7 @@ Single option, an array under key `beplus_scss_settings`:
 | `compile_mode` | enum   | `auto` (recompile when files change) / `manual` (compile via button) |
 | `source_map`   | bool   | emit `.css.map` next to the CSS file when enabled       |
 | `minify`       | bool   | compact output                                          |
-| `web_root`     | bool   | computed at Save: `str_starts_with( $css_dir . '/', ABSPATH )` |
+| `web_root`     | bool   | computed at Save: `0 === strpos( $css_dir . '/', ABSPATH )` (PHP 7.4-safe prefix check) |
 
 **Defaults** (fresh install / empty option): `scss_dir=''`, `css_dir=''`, `compile_mode='auto'`, `source_map=false`, `minify=false`, `web_root=false`. Until both paths are valid and saved, the plugin is inactive: nothing is enqueued and the rewrite rule is not served.
 
@@ -89,7 +89,7 @@ ScssPhpCompiler   // default backend (scssphp library)
 ```
 
 - `Value\CompileConfig` — immutable value object: `array $importPaths = []`, `bool $minify = false`, `bool $sourceMap = false`; getters only.
-- `Value\CompiledResult` — immutable value object: `string $css`, `?string $map`, `string $fileName`; getters only. `$map` is `null` when source maps are disabled.
+- `Value\CompiledResult` — immutable value object: `string $css`, `?string $map`, `string $fileName`; getters only. `$map` is `null` when source maps are disabled. `$fileName` is the CSS output path **relative to `css_dir`** (e.g. `main.css`, `modules/card.css`) — it is the `Writer::mirrorPath()` result, kept so callers can address the output without re-deriving it.
 - `ScssPhpCompiler` wraps `scssphp/scssphp` (`^1.11`, PHP 7.4 compatible):
   - `setImportPaths( $config->getImportPaths() )`.
   - Formatter: `Compressed` when `minify`, else `Expanded`.
@@ -101,11 +101,11 @@ ScssPhpCompiler   // default backend (scssphp library)
 
 **Scanner** — `Scanner::scan(string $scssDir): array` returns a list of absolute paths for every `.scss` file that does not start with `_`, retrieved recursively. Skips hidden directories (those beginning with `.`).
 
-**Fingerprint** — `Scanner::fingerprint(string $scssDir): string` = `md5` over the concatenation of `"relative_path:mtime:size\n"` for **every** `.scss` file under `scss_dir` (including partials). Catching all `.scss` files makes partial changes reliable — no import-graph tracking needed. Stored in option `beplus_scss_fingerprints` as `array relative_path => fingerprint` (one fingerprint per entry).
+**Fingerprint** — `Scanner::fingerprint(string $scssDir): string` = `md5` over the concatenation of `"relative_path:mtime:size\n"` for **every** `.scss` file under `scss_dir` (including partials). Catching all `.scss` files makes partial changes reliable — no import-graph tracking needed. The result is **one whole-directory md5**: a change to any `.scss` file (partial or not) changes the fingerprint for **every** entry, so the Detector reports all entries as changed and auto mode recompiles them all. Stored in option `beplus_scss_fingerprints` as `array relative_path => fingerprint` — the same whole-directory value under every entry key.
 
-**Detector** — pure: `Detector::changedEntries(array $entries, array $storedFingerprints, string $scssDir): array` returns the subset of `$entries` whose current fingerprint differs from (or is missing in) `$storedFingerprints`.
+**Detector** — pure: `Detector::changedEntries(array $entries, array $storedFingerprints, string $scssDir): array` compares the current whole-directory fingerprint against each entry's stored value and returns the subset of `$entries` that differ or are missing. A missing key marks a new/deleted-but-still-present entry as changed; a differing value recompiles that entry.
 
-**Auto-mode glue** (in `Plugin`): registered on `wp_enqueue_scripts`, default priority. Guards before doing anything: `! is_admin()`, `! wp_doing_ajax()`, settings valid, `compile_mode === 'auto'`. Then: for each changed entry → compile → write → update the fingerprint option. Runs once per request (static `$done` flag).
+**Auto-mode glue** (in `Plugin`): registered on `wp_enqueue_scripts`, default priority. Guards before doing anything: `! is_admin()`, `! wp_doing_ajax()`, settings valid, `compile_mode === 'auto'`. Then: for each changed entry → compile → write → update the fingerprint option by storing the **current whole-directory fingerprint** under every entry key (recompiling a partial or not, the stored value for all entries is refreshed to keep the `relative_path => fingerprint` map in sync). Runs once per request (static `$done` flag).
 
 **Manual mode**: compiles only via the "Compile now" button (Section 3).
 
@@ -123,6 +123,7 @@ ScssPhpCompiler   // default backend (scssphp library)
   - `web_root === true` → `home_url()` + relative path from `ABSPATH` (Section 3 formula).
   - `web_root === false` → internal rewrite endpoint.
 - **Endpoint** (`web_root === false` only): rewrite rule `^beplus-scss/([^/]+)$` → query var `beplus_scss_file`; handled on `template_redirect`.
+  - **URL format**: `home_url( '/beplus-scss/' ) . rawurlencode( $relativePath )`, where `$relativePath` keeps `/` separators (e.g. `modules/card.css`). `rawurlencode()` turns them into `%2F`, so the single-segment `[^/]+` rule still matches; the handler applies `rawurldecode()` to the query var **before** resolving the real path.
   - Servable files: only `.css` and `.map`, resolved via `realpath()` and only when the real path is inside `realpath( $css_dir )` (string-prefix check) — blocks path traversal.
   - Served with `readfile()` + correct `Content-Type`/`Content-Length`.
   - `flush_rewrite_rules` on activation **and** when settings change (hook into `update_option_beplus_scss_settings`).
@@ -154,7 +155,7 @@ Every filter has a sensible default, applied in the `Plugin` glue (never inside 
 ```
 Plugin Name: Beplus SCSS Compiler
 Description: Compiles SCSS to CSS. Declare an SCSS source directory and a CSS destination directory in the admin; the plugin recompiles on change (auto) or on demand (manual) and enqueues the result.
-Version: 0.1.0
+Version: 1.0.0
 Requires at least: 6.0
 Requires PHP: 7.4
 Author: Beplus
@@ -179,10 +180,11 @@ Domain Path: /languages
 
 - `scripts/build-package.mjs` builds the distributable zip:
   1. `composer install --no-dev --optimize-autoloader` into a fresh build tree.
-  2. Copy the publishable files (main plugin file, `src/`, `vendor/`, `languages/`, `readme.txt`, `uninstall.php`, `composer.json`) into `build/beplus-scss-compiler/`.
-  3. `archiver` (`zlib` level 9) packages `build/beplus-scss-compiler/` into `build/beplus-scss-compiler.zip` with the plugin folder as the archive root.
+  2. Copy the publishable files (main plugin file, `src/`, `vendor/`, `languages/`, `readme.txt`, `uninstall.php`, `composer.json`, `composer.lock`) into `build/beplus-scss-compiler/`.
+  3. `archiver` (`zlib` level 9) packages `build/beplus-scss-compiler/` into `build/beplus-scss-compiler-<version>.zip` with the plugin folder as the archive root; `<version>` comes from `package.json`, and the build prints the final zip size.
   - Excluded: `tests/`, `.github/`, `.codegraph/`, `.opencode/`, `.husky/`, `Plugin.md`, `AGENTS.md`, Composer dev tooling configs, npm/Node files.
-  - npm script `build` wraps the Node script; `vendor/` stays gitignored and is resolved at build time.
+  - npm script `build:package` wraps the Node script; `vendor/` stays gitignored and is resolved at build time.
+- Repo asset build: `npm run build` compiles frontend assets (JS/CSS) — a no-op placeholder today; it never touches the release zip. Packaging is a separate step: `npm run build:package`.
 - i18n pot: `composer i18n:pot` → `wp i18n make-pot . languages/beplus-scss.pot`.
 - **Tests**:
   - Unit (`composer test` → `phpunit --testsuite unit`): pure layers — `Scanner`, `Detector`, `Writer` (temp dirs), `Enqueue`, `Value\CompileConfig`/`CompiledResult`, `ScssPhpCompiler` (real scssphp, fixtures under `tests/fixtures/`), fingerprint.
@@ -214,6 +216,6 @@ Domain Path: /languages
 | POT | `languages/beplus-scss.pot` |
 | WP min / PHP min | 6.0 / 7.4 |
 | Compiler backend | `scssphp/scssphp:^1.11` |
-| Release zip | `build/beplus-scss-compiler.zip` via `scripts/build-package.mjs` (`npm run build`, uses `archiver`) |
-| Version | `0.1.0` |
+| Release zip | `build/beplus-scss-compiler-<version>.zip` via `scripts/build-package.mjs` (`npm run build:package`, uses `archiver`; version read from `package.json`) |
+| Version | `1.0.0` |
 | Author | Beplus — `https://profiles.wordpress.org/bearsthemes/` |

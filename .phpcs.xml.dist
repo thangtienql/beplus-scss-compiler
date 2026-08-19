@@ -6,6 +6,7 @@
 
 	<exclude-pattern>/vendor/*</exclude-pattern>
 	<exclude-pattern>/node_modules/*</exclude-pattern>
+	<exclude-pattern>/build/*</exclude-pattern>
 
 	<arg name="extensions" value="php"/>
 	<arg name="basepath" value="."/>
@@ -23,6 +24,41 @@
 		<exclude-pattern>/tests/*</exclude-pattern>
 	</rule>
 	<rule ref="WordPress.Files.FileName.InvalidClassFileName">
+		<exclude-pattern>/src/*</exclude-pattern>
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+
+	<!-- The pure layers and their tests follow the camelCase API pinned in Plugin.md
+	     (e.g. Scanner::fingerprint, Writer::mirrorPath, Value getters); WPCS snake_case
+	     checks are lifted for them. WordPress-touching classes (SettingsPage, Plugin)
+	     still use snake_case hook callbacks. -->
+	<rule ref="WordPress.NamingConventions.ValidFunctionName">
+		<exclude-pattern>/src/*</exclude-pattern>
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.NamingConventions.ValidVariableName">
+		<exclude-pattern>/src/*</exclude-pattern>
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<!-- Filter names (beplus_scss/compiler, /import_paths, ...) are pinned with slashes
+	     in Plugin.md Appendix A; the underscored variant is the WP-generic default and
+	     would contradict the contract, so the check is lifted for src/. -->
+	<rule ref="WordPress.NamingConventions.ValidHookName">
+		<exclude-pattern>/src/*</exclude-pattern>
+	</rule>
+
+	<!-- The Scanner/Detector/Compiler/Writer/Value layers are WordPress-agnostic by
+	     design (Plugin.md): they may not call wp_* functions, so the Core rules that
+	     force WordPress idioms or Core-only style on them are lifted for src/ and tests/. -->
+	<rule ref="WordPress.WP.AlternativeFunctions">
+		<exclude-pattern>/src/*</exclude-pattern>
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.PHP.NoSilencedErrors">
+		<exclude-pattern>/src/*</exclude-pattern>
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Universal.Arrays.DisallowShortArraySyntax">
 		<exclude-pattern>/src/*</exclude-pattern>
 		<exclude-pattern>/tests/*</exclude-pattern>
 	</rule>

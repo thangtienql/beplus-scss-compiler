@@ -87,7 +87,8 @@ codegraph init       # build the local code graph index (machine-local, not comm
 | `composer test` | phpunit — unit tests (pure layers) |
 | `composer test:integration` | phpunit — integration suite (run inside wp-env) |
 | `composer i18n:pot` | regenerate `languages/beplus-scss.pot` (`wp i18n make-pot`) |
-| `npm run build` | build the distributable zip → `build/beplus-scss-compiler.zip` |
+| `npm run build` | compile frontend assets (no-op today); never packages the zip |
+| `npm run build:package` | build the distributable zip → `build/beplus-scss-compiler-<version>.zip` |
 | `npm run wp-env start` | start the WordPress integration environment |
 | `npm run wp-env run phpunit` | run the integration suite inside wp-env |
 | `codegraph explore "<query>"` | understand code via the local index |

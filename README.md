@@ -31,7 +31,8 @@ codegraph init       # build the local code graph index (machine-local)
 | `composer analyse` | phpstan — static analysis at the highest level |
 | `composer test` | phpunit — unit tests for the pure layers (run integration via `composer test:integration` inside wp-env) |
 | `composer i18n:pot` | regenerate `languages/beplus-scss.pot` (`wp i18n make-pot`) |
-| `npm run build` | build the distributable zip → `build/beplus-scss-compiler.zip` |
+| `npm run build` | compile frontend assets (no-op today); never packages the zip |
+| `npm run build:package` | build the distributable zip → `build/beplus-scss-compiler-<version>.zip` |
 | `npm run wp-env start` | start the WordPress integration environment |
 
 ## Repository structure
@@ -40,7 +41,7 @@ codegraph init       # build the local code graph index (machine-local)
 ├── Plugin.md              # design contract (architecture source of truth)
 ├── AGENTS.md              # conventions + workflow for AI agents
 ├── .opencode/skills/      # repo-level skills (workflow, conventions, review)
-├── scripts/build-package.mjs # release build → build/beplus-scss-compiler.zip
+├── scripts/build-package.mjs # release build → build/beplus-scss-compiler-<version>.zip
 ├── src/                   # PSR-4: Beplus\ScssCompiler\
 └── tests/                 # unit (pure layers) + integration (wp-env)
 ```

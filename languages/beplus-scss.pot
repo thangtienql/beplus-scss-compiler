@@ -1,0 +1,69 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Beplus SCSS Compiler 1.0.0\n"
+"Language-Team: Beplus\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-08-19T00:00:00+00:00\n"
+"X-Domain-Loader: 1\n"
+
+msgid "Beplus SCSS Compiler: run `composer install` in the plugin directory."
+msgstr ""
+
+msgid "You are not allowed to do that."
+msgstr ""
+
+msgid "Beplus SCSS"
+msgstr ""
+
+msgid "SCSS compiled successfully."
+msgstr ""
+
+msgid "Beplus SCSS Compiler"
+msgstr ""
+
+msgid "SCSS source directory"
+msgstr ""
+
+msgid "CSS destination directory"
+msgstr ""
+
+msgid "Compile mode"
+msgstr ""
+
+msgid "Auto (recompile on change)"
+msgstr ""
+
+msgid "Manual (compile via button)"
+msgstr ""
+
+msgid "Source maps"
+msgstr ""
+
+msgid "Emit .css.map files"
+msgstr ""
+
+msgid "Minify"
+msgstr ""
+
+msgid "Compact output"
+msgstr ""
+
+msgid "Compile SCSS now"
+msgstr ""
+
+msgid "SCSS directory does not exist."
+msgstr ""
+
+msgid "SCSS directory is not readable."
+msgstr ""
+
+msgid "SCSS directory contains no entries (non-partial .scss files)."
+msgstr ""
+
+msgid "CSS directory does not exist."
+msgstr ""
+
+msgid "CSS directory is not writable."
+msgstr ""
