@@ -12,7 +12,7 @@ use Beplus\ScssCompiler\Scanner;
 final class SettingsPage {
 
 	const OPTION_NAME    = 'beplus_scss_settings';
-	const MENU_SLUG      = 'beplus-scss';
+	const MENU_SLUG      = 'beplus-scss-compiler';
 	const COMPILE_ACTION = 'beplus_scss_compile';
 	const NONCE_FIELD    = 'beplus_scss_compile_nonce';
 
@@ -153,8 +153,8 @@ final class SettingsPage {
 	public function registerMenu(): void {
 		add_submenu_page(
 			'options-general.php',
-			__( 'Beplus SCSS', 'beplus-scss' ),
-			__( 'Beplus SCSS', 'beplus-scss' ),
+			__( 'Beplus SCSS Compiler', 'beplus-scss-compiler' ),
+			__( 'Beplus SCSS Compiler', 'beplus-scss-compiler' ),
 			'manage_options',
 			self::MENU_SLUG,
 			[ $this, 'renderPage' ]
@@ -177,7 +177,7 @@ final class SettingsPage {
 			return;
 		}
 		/** @var string $rawMsg */
-		$rawMsg              = isset( $_GET['msg'] ) && is_scalar( $_GET['msg'] ) ? (string) $_GET['msg'] : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only flag from the wp_safe_redirect() query args; no state change happens here.
+		$rawMsg              = isset( $_GET['msg'] ) && is_scalar( $_GET['msg'] ) ? (string) wp_unslash( $_GET['msg'] ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only flag from the wp_safe_redirect() query args; no state change happens here.
 		$msg                 = sanitize_key( $rawMsg );
 		$version             = get_option( 'beplus_scss_version', '' );
 		$version             = is_string( $version ) ? $version : '';
@@ -187,9 +187,9 @@ final class SettingsPage {
 		$toasts              = self::toastList(
 			$errors,
 			$msg,
-			__( 'SCSS compiled successfully.', 'beplus-scss' ),
-			__( 'Compilation failed. Check your SCSS sources and try again.', 'beplus-scss' ),
-			__( 'Settings saved.', 'beplus-scss' )
+			__( 'SCSS compiled successfully.', 'beplus-scss-compiler' ),
+			__( 'Compilation failed. Check your SCSS sources and try again.', 'beplus-scss-compiler' ),
+			__( 'Settings saved.', 'beplus-scss-compiler' )
 		);
 		?>
 		<div class="wrap beplus-wrap">
@@ -270,15 +270,15 @@ final class SettingsPage {
 				<div class="beplus-hero-top">
 					<span class="beplus-hero-icon dashicons dashicons-editor-code" aria-hidden="true"></span>
 					<div class="beplus-hero-text">
-						<h1 class="beplus-hero-title"><?php echo esc_html( __( 'Beplus SCSS Compiler', 'beplus-scss' ) ); ?></h1>
-						<p class="beplus-hero-sub"><?php echo esc_html( __( 'Declare your SCSS source and CSS destination directories and let the plugin handle the rest.', 'beplus-scss' ) ); ?></p>
+						<h1 class="beplus-hero-title"><?php echo esc_html( __( 'Beplus SCSS Compiler', 'beplus-scss-compiler' ) ); ?></h1>
+						<p class="beplus-hero-sub"><?php echo esc_html( __( 'Declare your SCSS source and CSS destination directories and let the plugin handle the rest.', 'beplus-scss-compiler' ) ); ?></p>
 					</div>
 					<div class="beplus-hero-chips">
 					<?php if ( '' !== $version ) : ?>
 						<?php /* translators: %s: Plugin version number. */ ?>
-						<span class="beplus-chip"><?php echo esc_html( sprintf( __( 'v%s', 'beplus-scss' ), $version ) ); ?></span>
+						<span class="beplus-chip"><?php echo esc_html( sprintf( __( 'v%s', 'beplus-scss-compiler' ), $version ) ); ?></span>
 					<?php endif; ?>
-						<span class="beplus-chip beplus-chip-active"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><?php echo esc_html( __( 'Active', 'beplus-scss' ) ); ?></span>
+						<span class="beplus-chip beplus-chip-active"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><?php echo esc_html( __( 'Active', 'beplus-scss-compiler' ) ); ?></span>
 					</div>
 				</div>
 			</div>
@@ -304,31 +304,31 @@ final class SettingsPage {
 				<div class="beplus-stat">
 					<span class="beplus-stat-icon dashicons dashicons-update" aria-hidden="true"></span>
 					<div>
-						<span class="beplus-stat-label"><?php echo esc_html( __( 'Mode', 'beplus-scss' ) ); ?></span>
-						<span class="beplus-stat-value"><?php echo esc_html( 'auto' === $settings['compile_mode'] ? __( 'Auto-compile', 'beplus-scss' ) : __( 'Manual', 'beplus-scss' ) ); ?></span>
+						<span class="beplus-stat-label"><?php echo esc_html( __( 'Mode', 'beplus-scss-compiler' ) ); ?></span>
+						<span class="beplus-stat-value"><?php echo esc_html( 'auto' === $settings['compile_mode'] ? __( 'Auto-compile', 'beplus-scss-compiler' ) : __( 'Manual', 'beplus-scss-compiler' ) ); ?></span>
 					</div>
 				</div>
 				<div class="beplus-stat">
 					<span class="beplus-stat-icon dashicons dashicons-editor-contract" aria-hidden="true"></span>
 					<div>
-						<span class="beplus-stat-label"><?php echo esc_html( __( 'Minify', 'beplus-scss' ) ); ?></span>
-						<span class="beplus-stat-value"><?php echo esc_html( $settings['minify'] ? __( 'On', 'beplus-scss' ) : __( 'Off', 'beplus-scss' ) ); ?></span>
+						<span class="beplus-stat-label"><?php echo esc_html( __( 'Minify', 'beplus-scss-compiler' ) ); ?></span>
+						<span class="beplus-stat-value"><?php echo esc_html( $settings['minify'] ? __( 'On', 'beplus-scss-compiler' ) : __( 'Off', 'beplus-scss-compiler' ) ); ?></span>
 					</div>
 				</div>
 				<div class="beplus-stat">
 					<span class="beplus-stat-icon dashicons dashicons-portfolio" aria-hidden="true"></span>
 					<div>
-						<span class="beplus-stat-label"><?php echo esc_html( __( 'Output', 'beplus-scss' ) ); ?></span>
+						<span class="beplus-stat-label"><?php echo esc_html( __( 'Output', 'beplus-scss-compiler' ) ); ?></span>
 						<span class="beplus-stat-value">
 						<?php
 						$outputCount = count( $settings['pairs'] );
 						if ( 0 === $outputCount ) {
-							echo esc_html( __( 'Not set', 'beplus-scss' ) );
+							echo esc_html( __( 'Not set', 'beplus-scss-compiler' ) );
 						} elseif ( 1 === $outputCount ) {
 							echo esc_html( $settings['pairs'][0]['css_dir'] );
 						} else {
 							/* translators: %d: Number of SCSS/CSS pairs. */
-							echo esc_html( sprintf( __( '%d outputs', 'beplus-scss' ), $outputCount ) );
+							echo esc_html( sprintf( __( '%d outputs', 'beplus-scss-compiler' ), $outputCount ) );
 						}
 						?>
 						</span>
@@ -339,22 +339,22 @@ final class SettingsPage {
 			<div class="beplus-grid">
 				<div class="beplus-col-main">
 					<form action="options.php" method="post" class="beplus-card">
-						<h2 class="beplus-card-title"><span class="dashicons dashicons-admin-generic" aria-hidden="true"></span><?php echo esc_html( __( 'Settings', 'beplus-scss' ) ); ?></h2>
+						<h2 class="beplus-card-title"><span class="dashicons dashicons-admin-generic" aria-hidden="true"></span><?php echo esc_html( __( 'Settings', 'beplus-scss-compiler' ) ); ?></h2>
 						<?php
 						settings_fields( 'beplus_scss_settings_group' );
 						$this->renderFields( $settings );
-						submit_button( __( 'Save Changes', 'beplus-scss' ), 'primary', 'submit', false, [ 'class' => 'beplus-btn-save' ] );
+						submit_button( __( 'Save Changes', 'beplus-scss-compiler' ), 'primary', 'submit', false, [ 'class' => 'beplus-btn-save' ] );
 						?>
 					</form>
 				</div>
 				<div class="beplus-col-side">
 					<div class="beplus-card">
-						<h2 class="beplus-card-title"><span class="dashicons dashicons-performance" aria-hidden="true"></span><?php echo esc_html( __( 'Compile now', 'beplus-scss' ) ); ?></h2>
+						<h2 class="beplus-card-title"><span class="dashicons dashicons-performance" aria-hidden="true"></span><?php echo esc_html( __( 'Compile now', 'beplus-scss-compiler' ) ); ?></h2>
 						<?php $this->renderCompileNow(); ?>
 					</div>
 					<div class="beplus-tip">
 						<span class="dashicons dashicons-lightbulb" aria-hidden="true"></span>
-						<span><?php echo esc_html( __( 'Tip: Auto mode recompiles changed files on the frontend. Manual mode compiles only when you press the button.', 'beplus-scss' ) ); ?></span>
+						<span><?php echo esc_html( __( 'Tip: Auto mode recompiles changed files on the frontend. Manual mode compiles only when you press the button.', 'beplus-scss-compiler' ) ); ?></span>
 					</div>
 				</div>
 			</div>
@@ -382,7 +382,7 @@ final class SettingsPage {
 				$this->renderPairRow( $pairIndex, $pair['scss_dir'], $pair['css_dir'] );
 			}
 			?>
-			<button type="button" class="beplus-btn-add" id="beplus-add-pair"><?php echo esc_html( __( 'Add pair', 'beplus-scss' ) ); ?></button>
+			<button type="button" class="beplus-btn-add" id="beplus-add-pair"><?php echo esc_html( __( 'Add pair', 'beplus-scss-compiler' ) ); ?></button>
 		</div>
 		<script type="text/template" id="beplus-pair-template"><?php $this->renderPairRowTemplate(); ?></script>
 		<script>
@@ -390,7 +390,7 @@ final class SettingsPage {
 			var container = document.getElementById( 'beplus-pairs' );
 			var template  = document.getElementById( 'beplus-pair-template' );
 			var addBtn    = document.getElementById( 'beplus-add-pair' );
-			var labelPrefix = <?php echo wp_json_encode( __( 'Pair', 'beplus-scss' ) . ' ' ); ?>;
+			var labelPrefix = <?php echo wp_json_encode( __( 'Pair', 'beplus-scss-compiler' ) . ' ' ); ?>;
 			if ( ! container || ! template || ! addBtn ) {
 				return;
 			}
@@ -416,37 +416,37 @@ final class SettingsPage {
 		} )();
 		</script>
 		<fieldset class="beplus-segment">
-			<legend class="beplus-field-label"><?php echo esc_html( __( 'Compile mode', 'beplus-scss' ) ); ?></legend>
+			<legend class="beplus-field-label"><?php echo esc_html( __( 'Compile mode', 'beplus-scss-compiler' ) ); ?></legend>
 			<div class="beplus-segment-inner">
 				<input type="radio" id="beplus_scss_mode_auto" name="beplus_scss_settings[compile_mode]" value="auto" <?php checked( 'auto', $values['compile_mode'] ); ?> />
-				<label for="beplus_scss_mode_auto"><span class="dashicons dashicons-update" aria-hidden="true"></span><?php echo esc_html( __( 'Auto', 'beplus-scss' ) ); ?></label>
+				<label for="beplus_scss_mode_auto"><span class="dashicons dashicons-update" aria-hidden="true"></span><?php echo esc_html( __( 'Auto', 'beplus-scss-compiler' ) ); ?></label>
 				<input type="radio" id="beplus_scss_mode_manual" name="beplus_scss_settings[compile_mode]" value="manual" <?php checked( 'manual', $values['compile_mode'] ); ?> />
-				<label for="beplus_scss_mode_manual"><span class="dashicons dashicons-controls-repeat" aria-hidden="true"></span><?php echo esc_html( __( 'Manual', 'beplus-scss' ) ); ?></label>
+				<label for="beplus_scss_mode_manual"><span class="dashicons dashicons-controls-repeat" aria-hidden="true"></span><?php echo esc_html( __( 'Manual', 'beplus-scss-compiler' ) ); ?></label>
 			</div>
-			<p class="beplus-hint"><?php echo esc_html( __( 'Auto recompiles changed files on the frontend; Manual compiles only via the button.', 'beplus-scss' ) ); ?></p>
+			<p class="beplus-hint"><?php echo esc_html( __( 'Auto recompiles changed files on the frontend; Manual compiles only via the button.', 'beplus-scss-compiler' ) ); ?></p>
 		</fieldset>
 		<label class="beplus-toggle">
 			<input type="checkbox" name="beplus_scss_settings[source_map]" value="1" <?php checked( true, (bool) $values['source_map'] ); ?> />
 			<span class="beplus-toggle-track"></span>
 			<span class="beplus-toggle-text">
-				<strong><?php echo esc_html( __( 'Source maps', 'beplus-scss' ) ); ?></strong>
-				<small><?php echo esc_html( __( 'Emit .css.map files', 'beplus-scss' ) ); ?></small>
+				<strong><?php echo esc_html( __( 'Source maps', 'beplus-scss-compiler' ) ); ?></strong>
+				<small><?php echo esc_html( __( 'Emit .css.map files', 'beplus-scss-compiler' ) ); ?></small>
 			</span>
 		</label>
 		<label class="beplus-toggle">
 			<input type="checkbox" name="beplus_scss_settings[minify]" value="1" <?php checked( true, (bool) $values['minify'] ); ?> />
 			<span class="beplus-toggle-track"></span>
 			<span class="beplus-toggle-text">
-				<strong><?php echo esc_html( __( 'Minify', 'beplus-scss' ) ); ?></strong>
-				<small><?php echo esc_html( __( 'Compact output', 'beplus-scss' ) ); ?></small>
+				<strong><?php echo esc_html( __( 'Minify', 'beplus-scss-compiler' ) ); ?></strong>
+				<small><?php echo esc_html( __( 'Compact output', 'beplus-scss-compiler' ) ); ?></small>
 			</span>
 		</label>
 		<label class="beplus-toggle">
 			<input type="checkbox" name="beplus_scss_settings[enqueue]" value="1" <?php checked( true, (bool) $values['enqueue'] ); ?> />
 			<span class="beplus-toggle-track"></span>
 			<span class="beplus-toggle-text">
-				<strong><?php echo esc_html( __( 'Enqueue compiled CSS', 'beplus-scss' ) ); ?></strong>
-				<small><?php echo esc_html( __( 'Load compiled styles on the frontend', 'beplus-scss' ) ); ?></small>
+				<strong><?php echo esc_html( __( 'Enqueue compiled CSS', 'beplus-scss-compiler' ) ); ?></strong>
+				<small><?php echo esc_html( __( 'Load compiled styles on the frontend', 'beplus-scss-compiler' ) ); ?></small>
 			</span>
 		</label>
 		<?php
@@ -461,19 +461,19 @@ final class SettingsPage {
 		<div class="beplus-pair-row">
 			<div class="beplus-pair-head">
 				<?php /* translators: %d: Pair number. */ ?>
-				<span class="beplus-pair-label"><?php echo esc_html( sprintf( __( 'Pair %d', 'beplus-scss' ), $index + 1 ) ); ?></span>
-				<button type="button" class="beplus-btn-remove" data-remove><?php echo esc_html( __( 'Remove', 'beplus-scss' ) ); ?></button>
+				<span class="beplus-pair-label"><?php echo esc_html( sprintf( __( 'Pair %d', 'beplus-scss-compiler' ), $index + 1 ) ); ?></span>
+				<button type="button" class="beplus-btn-remove" data-remove><?php echo esc_html( __( 'Remove', 'beplus-scss-compiler' ) ); ?></button>
 			</div>
 			<div class="beplus-pair-inputs">
 				<div class="beplus-field">
-					<label class="beplus-field-label" for="beplus_scss_scss_dir_<?php echo esc_attr( (string) $index ); ?>"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss' ) ); ?></label>
+					<label class="beplus-field-label" for="beplus_scss_scss_dir_<?php echo esc_attr( (string) $index ); ?>"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss-compiler' ) ); ?></label>
 					<input type="text" id="beplus_scss_scss_dir_<?php echo esc_attr( (string) $index ); ?>" name="beplus_scss_settings[pairs][<?php echo esc_attr( (string) $index ); ?>][scss_dir]" value="<?php echo esc_attr( $scss ); ?>" placeholder="<?php echo esc_attr( 'assets/scss' ); ?>" />
-					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss' ) ); ?></p>
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss-compiler' ) ); ?></p>
 				</div>
 				<div class="beplus-field">
-					<label class="beplus-field-label" for="beplus_scss_css_dir_<?php echo esc_attr( (string) $index ); ?>"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss' ) ); ?></label>
+					<label class="beplus-field-label" for="beplus_scss_css_dir_<?php echo esc_attr( (string) $index ); ?>"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss-compiler' ) ); ?></label>
 					<input type="text" id="beplus_scss_css_dir_<?php echo esc_attr( (string) $index ); ?>" name="beplus_scss_settings[pairs][<?php echo esc_attr( (string) $index ); ?>][css_dir]" value="<?php echo esc_attr( $css ); ?>" placeholder="<?php echo esc_attr( 'assets/css' ); ?>" />
-					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss' ) ); ?></p>
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss-compiler' ) ); ?></p>
 				</div>
 			</div>
 		</div>
@@ -485,18 +485,18 @@ final class SettingsPage {
 		<div class="beplus-pair-row">
 			<div class="beplus-pair-head">
 				<span class="beplus-pair-label" data-pair-label></span>
-				<button type="button" class="beplus-btn-remove" data-remove><?php echo esc_html( __( 'Remove', 'beplus-scss' ) ); ?></button>
+				<button type="button" class="beplus-btn-remove" data-remove><?php echo esc_html( __( 'Remove', 'beplus-scss-compiler' ) ); ?></button>
 			</div>
 			<div class="beplus-pair-inputs">
 				<div class="beplus-field">
-					<label class="beplus-field-label"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss' ) ); ?></label>
+					<label class="beplus-field-label"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss-compiler' ) ); ?></label>
 					<input type="text" name="beplus_scss_settings[pairs][__INDEX__][scss_dir]" value="" placeholder="<?php echo esc_attr( 'assets/scss' ); ?>" />
-					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss' ) ); ?></p>
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss-compiler' ) ); ?></p>
 				</div>
 				<div class="beplus-field">
-					<label class="beplus-field-label"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss' ) ); ?></label>
+					<label class="beplus-field-label"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss-compiler' ) ); ?></label>
 					<input type="text" name="beplus_scss_settings[pairs][__INDEX__][css_dir]" value="" placeholder="<?php echo esc_attr( 'assets/css' ); ?>" />
-					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss' ) ); ?></p>
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss-compiler' ) ); ?></p>
 				</div>
 			</div>
 		</div>
@@ -510,7 +510,7 @@ final class SettingsPage {
 			<input type="hidden" name="action" value="<?php echo esc_attr( self::COMPILE_ACTION ); ?>" />
 			<?php wp_nonce_field( self::NONCE_FIELD ); ?>
 			<input type="hidden" name="msg_base" value="admin" />
-			<?php submit_button( __( 'Compile SCSS now', 'beplus-scss' ), 'secondary beplus-btn-compile', 'compile-now', false ); ?>
+			<?php submit_button( __( 'Compile SCSS now', 'beplus-scss-compiler' ), 'secondary beplus-btn-compile', 'compile-now', false ); ?>
 		</form>
 		<?php
 	}
@@ -679,8 +679,8 @@ final class SettingsPage {
 			$output['pairs'] = $result['pairs'];
 			foreach ( $result['errors'] as $error ) {
 				$message = strpos( $error['code'], 'bad_scss_dir' ) === 0
-					? __( 'SCSS directory is not valid.', 'beplus-scss' )
-					: __( 'CSS directory is not valid.', 'beplus-scss' );
+					? __( 'SCSS directory is not valid.', 'beplus-scss-compiler' )
+					: __( 'CSS directory is not valid.', 'beplus-scss-compiler' );
 				add_settings_error( self::OPTION_NAME, $error['code'], $message );
 			}
 		} else {
@@ -723,16 +723,16 @@ final class SettingsPage {
 			return true;
 		}
 		if ( ! is_dir( $path ) ) {
-			return __( 'SCSS directory does not exist.', 'beplus-scss' );
+			return __( 'SCSS directory does not exist.', 'beplus-scss-compiler' );
 		}
 		if ( ! is_readable( $path ) ) {
-			return __( 'SCSS directory is not readable.', 'beplus-scss' );
+			return __( 'SCSS directory is not readable.', 'beplus-scss-compiler' );
 		}
 		if ( 0 < count( Scanner::scan( $path ) ) ) {
 			return true;
 		}
 
-		return __( 'SCSS directory contains no entries (non-partial .scss files).', 'beplus-scss' );
+		return __( 'SCSS directory contains no entries (non-partial .scss files).', 'beplus-scss-compiler' );
 	}
 
 	/**
@@ -743,10 +743,12 @@ final class SettingsPage {
 			return true;
 		}
 		if ( ! is_dir( $path ) ) {
-			return __( 'CSS directory does not exist.', 'beplus-scss' );
+			return __( 'CSS directory does not exist.', 'beplus-scss-compiler' );
 		}
+		// Direct is_writable() is intentional: the layer contract (Plugin.md)
+		// keeps SettingsPage validation filesystem-based without WP_Filesystem.
 		if ( ! is_writable( $path ) ) {
-			return __( 'CSS directory is not writable.', 'beplus-scss' );
+			return __( 'CSS directory is not writable.', 'beplus-scss-compiler' );
 		}
 
 		return true;

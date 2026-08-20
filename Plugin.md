@@ -52,7 +52,7 @@ src/
 
 ## 3. Settings Layer
 
-Submenu under the **Settings** menu (`options-general.php`): title "Beplus SCSS", slug `beplus-scss`, capability `manage_options`. Uses the Settings API.
+Submenu under the **Settings** menu (`options-general.php`): title "Beplus SCSS Compiler", slug `beplus-scss-compiler`, capability `manage_options`. Uses the Settings API.
 
 **Scope contract**: the plugin operates **only inside the active theme** (`get_stylesheet_directory()`, i.e. the theme currently rendering the frontend, parent or child). Users enter **relative paths** from that theme root (e.g. `assets/scss`, `assets/css`); the plugin resolves them against the theme directory. This keeps the blast radius bounded to the theme and makes paths portable across environments.
 
@@ -125,6 +125,7 @@ ScssPhpCompiler   // default backend (scssphp library)
 **Writer** — mirrors paths: `scss/main.scss` → `css_dir/main.css`; `scss/modules/card.scss` → `css_dir/modules/card.css`; creates missing subdirectories recursively.
 - `Writer::mirrorPath(string $entry, string $scssDir, string $cssDir): string` computes the destination (`relative` from `scssDir`, `.scss` → `.css`).
 - Writes **atomically**: temp file `.<basename>.tmp.<uniqid>` in the destination directory, then `rename()`. A separate atomic write stores the `.map` file at the destination path plus `.map` when source maps are enabled.
+- The Writer (and the settings dir validation) uses **direct filesystem calls** (`is_dir`, `mkdir`, `rename`, `unlink`, `is_writable`) by design — it is a WordPress-agnostic layer and may not call `WP_Filesystem`, which also does not reliably support atomic `rename`. This is an accepted deviation from the Plugin Check "direct filesystem" guidance.
 
 ## 6. Enqueue + Delivery
 
@@ -174,7 +175,7 @@ Author: Beplus
 Author URI: https://profiles.wordpress.org/bearsthemes/
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Text Domain: beplus-scss
+Text Domain: beplus-scss-compiler
 Domain Path: /languages
 ```
 
@@ -183,9 +184,9 @@ Domain Path: /languages
 - Activation: store `beplus_scss_version` (plugin version). Deactivation: no cleanup. (No rewrite rules exist, so nothing to flush.)
 - `uninstall.php`: deletes exactly `beplus_scss_settings`, `beplus_scss_fingerprints`, `beplus_scss_compiled`, `beplus_scss_last_error`, `beplus_scss_version`.
 - PSR-4 autoload: namespace `Beplus\ScssCompiler\`, directory `src/`.
-- Textdomain `beplus-scss`, pot at `languages/beplus-scss.pot`, `readme.txt` present (public-ready).
+- Textdomain `beplus-scss-compiler`, pot at `languages/beplus-scss-compiler.pot`, `readme.txt` present (public-ready).
 - WP Coding Standards (phpcs) wired into pre-commit; PHPStan at the highest level; PHP 7.4 compatibility enforced (phpcs `PHPCompatibility`, `testVersion 7.4-`).
-- i18n: every user-facing string wrapped with textdomain `beplus-scss`; **no hardcoded English months/URLs** in output.
+- i18n: every user-facing string wrapped with textdomain `beplus-scss-compiler`; **no hardcoded English months/URLs** in output.
 - Security: escape all output, sanitize all input, nonces + capability checks in every admin handler.
 
 ## 10. Release & Tooling
@@ -197,7 +198,7 @@ Domain Path: /languages
   - Excluded: `tests/`, `.github/`, `.codegraph/`, `.opencode/`, `.husky/`, `Plugin.md`, `AGENTS.md`, Composer dev tooling configs, npm/Node files.
   - npm script `build:package` wraps the Node script; `vendor/` stays gitignored and is resolved at build time.
 - Repo asset build: `npm run build` compiles frontend assets (JS/CSS) — a no-op placeholder today; it never touches the release zip. Packaging is a separate step: `npm run build:package`.
-- i18n pot: `composer i18n:pot` → `wp i18n make-pot . languages/beplus-scss.pot`.
+- i18n pot: `composer i18n:pot` → `wp i18n make-pot . languages/beplus-scss-compiler.pot`.
 - **Tests**:
   - Unit (`composer test` → `phpunit --testsuite unit`): pure layers — `Scanner`, `Detector`, `Writer` (temp dirs), `Enqueue`, `Value\CompileConfig`/`CompiledResult`, `ScssPhpCompiler` (real scssphp, fixtures under `tests/fixtures/`), fingerprint.
   - Integration (`composer test:integration` → `phpunit --testsuite integration`, run inside `wp-env`): settings save/validate, compile-now, registry maintenance, enqueue handles/URLs (gated on `enqueue=true`), the six filters.
@@ -218,14 +219,14 @@ Domain Path: /languages
 | Last error option | `beplus_scss_last_error` |
 | Version option | `beplus_scss_version` |
 | uninstall.php deletes | exactly the 5 options above |
-| Menu | Submenu of Settings (`options-general.php`), slug `beplus-scss`, `manage_options` |
+| Menu | Submenu of Settings (`options-general.php`), slug `beplus-scss-compiler`, `manage_options` |
 | Nonce (compile-now) | `beplus_scss_compile_nonce` |
 | Admin-post action | `beplus_scss_compile` |
 | Handle prefix | `beplus-scss-<pairId>-` (slugified relative path; pair id = index in `pairs`) |
 | Filters | `beplus_scss/compiler`, `/import_paths`, `/exclude`, `/write_path`, `/enqueue`, `/error` (see §7 for signatures) |
 | Defaults | `pairs=[]`, `auto`, `source_map=false`, `minify=false`, `enqueue=false` |
-| Textdomain / domain path | `beplus-scss` / `/languages` |
-| POT | `languages/beplus-scss.pot` |
+| Textdomain / domain path | `beplus-scss-compiler` / `/languages` |
+| POT | `languages/beplus-scss-compiler.pot` |
 | WP min / PHP min | 6.0 / 7.4 |
 | Compiler backend | `scssphp/scssphp:^1.11` |
 | Release zip | `build/beplus-scss-compiler-<version>.zip` via `scripts/build-package.mjs` (`npm run build:package`, uses `archiver`; version read from `package.json`) |

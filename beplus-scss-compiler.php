@@ -9,7 +9,7 @@
  * Author URI: https://profiles.wordpress.org/bearsthemes/
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain: beplus-scss
+ * Text Domain: beplus-scss-compiler
  * Domain Path: /languages
  */
 
@@ -23,7 +23,7 @@ if ( ! file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 	add_action(
 		'admin_notices',
 		static function () {
-			echo '<div class="notice notice-error"><p>' . esc_html__( 'Beplus SCSS Compiler: run `composer install` in the plugin directory.', 'beplus-scss' ) . '</p></div>';
+			echo '<div class="notice notice-error"><p>' . esc_html__( 'Beplus SCSS Compiler: run `composer install` in the plugin directory.', 'beplus-scss-compiler' ) . '</p></div>';
 		}
 	);
 

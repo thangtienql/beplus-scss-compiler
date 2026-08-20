@@ -23,6 +23,10 @@ final class Writer {
 	}
 
 	private static function atomicWrite( string $content, string $absPath ): bool {
+		// The Writer is a WordPress-agnostic layer (Plugin.md): it must not call
+		// WP_Filesystem. Direct filesystem access is intentional — atomic rename
+		// (temp file + rename) is not reliably supported by WP_Filesystem, and
+		// atomic writes guarantee the previous CSS stays intact on compile error.
 		$dir = dirname( $absPath );
 		if ( ! is_dir( $dir ) ) {
 			@mkdir( $dir, 0777, true );

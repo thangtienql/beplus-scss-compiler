@@ -91,7 +91,7 @@ final class Plugin {
 
 	public function handleCompileNow(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'beplus-scss' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'beplus-scss-compiler' ) );
 		}
 		check_admin_referer( SettingsPage::NONCE_FIELD );
 

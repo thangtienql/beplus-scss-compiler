@@ -14,7 +14,7 @@ msgstr ""
 msgid "You are not allowed to do that."
 msgstr ""
 
-msgid "Beplus SCSS"
+msgid "Beplus SCSS Compiler"
 msgstr ""
 
 msgid "SCSS compiled successfully."

@@ -41,6 +41,6 @@
     "lint:fix": "phpcbf",
     "test": "phpunit --testsuite unit",
     "test:integration": "phpunit --testsuite integration",
-    "i18n:pot": "wp i18n make-pot . languages/beplus-scss.pot"
+    "i18n:pot": "wp i18n make-pot . languages/beplus-scss-compiler.pot"
   }
 }

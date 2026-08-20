@@ -32,7 +32,7 @@ codegraph init       # build the local code graph index (machine-local)
 | `composer lint:fix` | phpcbf — auto-fix style issues |
 | `composer analyse` | phpstan — static analysis at the highest level |
 | `composer test` | phpunit — unit tests for the pure layers (run integration via `composer test:integration` inside wp-env) |
-| `composer i18n:pot` | regenerate `languages/beplus-scss.pot` (`wp i18n make-pot`) |
+| `composer i18n:pot` | regenerate `languages/beplus-scss-compiler.pot` (`wp i18n make-pot`) |
 | `npm run build` | compile frontend assets (no-op today); never packages the zip |
 | `npm run build:package` | build the distributable zip → `build/beplus-scss-compiler-<version>.zip` |
 | `npm run wp-env start` | start the WordPress integration environment |
