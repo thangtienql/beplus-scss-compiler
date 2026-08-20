@@ -23,19 +23,71 @@ msgstr ""
 msgid "Beplus SCSS Compiler"
 msgstr ""
 
+msgid "Active"
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "Auto-compile"
+msgstr ""
+
+msgid "Auto recompiles changed files on the frontend; Manual compiles only via the button."
+msgstr ""
+
+msgid "Compilation failed. Check your SCSS sources and try again."
+msgstr ""
+
+msgid "Compile now"
+msgstr ""
+
+msgid "Declare your SCSS source and CSS destination directories and let the plugin handle the rest."
+msgstr ""
+
+msgid "Manual"
+msgstr ""
+
+msgid "Mode"
+msgstr ""
+
+msgid "Not set"
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "On"
+msgstr ""
+
+msgid "Output"
+msgstr ""
+
+msgid "Relative to your active theme. Must be writable by the server."
+msgstr ""
+
+msgid "Relative to your active theme. Must contain at least one non-partial .scss file."
+msgstr ""
+
+msgid "Save Changes"
+msgstr ""
+
 msgid "SCSS source directory"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Tip: Auto mode recompiles changed files on the frontend. Manual mode compiles only when you press the button."
+msgstr ""
+
+#. translators: %s: Plugin version number.
+msgid "v%s"
 msgstr ""
 
 msgid "CSS destination directory"
 msgstr ""
 
 msgid "Compile mode"
-msgstr ""
-
-msgid "Auto (recompile on change)"
-msgstr ""
-
-msgid "Manual (compile via button)"
 msgstr ""
 
 msgid "Source maps"
@@ -66,4 +118,16 @@ msgid "CSS directory does not exist."
 msgstr ""
 
 msgid "CSS directory is not writable."
+msgstr ""
+
+msgid "CSS directory must not contain \"..\"."
+msgstr ""
+
+msgid "Enqueue compiled CSS"
+msgstr ""
+
+msgid "Load compiled styles on the frontend"
+msgstr ""
+
+msgid "SCSS directory must not contain \"..\"."
 msgstr ""

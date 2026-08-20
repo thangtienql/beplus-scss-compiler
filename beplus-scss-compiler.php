@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Beplus SCSS Compiler
- * Description: Compiles SCSS to CSS. Declare an SCSS source directory and a CSS destination directory in the admin; the plugin recompiles on change (auto) or on demand (manual) and enqueues the result.
+ * Description: Compiles SCSS to CSS. Declare an SCSS source directory and a CSS destination directory in the admin; the plugin recompiles on change (auto) or on demand (manual), and can enqueue the compiled CSS.
  * Version: 1.0.0
  * Requires at least: 6.0
  * Requires PHP: 7.4

@@ -8,13 +8,13 @@ Stable tag: 1.0.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Compiles SCSS to CSS and enqueues the result on the frontend.
+Compiles SCSS to CSS and can enqueue the result on the frontend.
 
 == Description ==
 
 Declare an SCSS source directory and a CSS destination directory in the
 admin. The plugin scans SCSS (mirror structure), recompiles when files change
-(auto mode) or on demand (manual mode), and enqueues the compiled CSS.
+(auto mode) or on demand (manual mode), and can enqueue the compiled CSS.
 
 == Installation ==
 

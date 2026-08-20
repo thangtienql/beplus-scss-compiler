@@ -16,6 +16,7 @@ final class Plugin {
 
 	const VERSION             = '1.0.0';
 	const FINGERPRINTS_OPTION = 'beplus_scss_fingerprints';
+	const COMPILED_OPTION     = 'beplus_scss_compiled';
 	const LAST_ERROR_OPTION   = 'beplus_scss_last_error';
 	const VERSION_OPTION      = 'beplus_scss_version';
 
@@ -31,39 +32,12 @@ final class Plugin {
 
 		add_action( 'wp_enqueue_scripts', [ $this, 'onEnqueueScripts' ] );
 		add_action( 'admin_post_' . SettingsPage::COMPILE_ACTION, [ $this, 'handleCompileNow' ] );
-		add_action( 'init', [ $this, 'registerEndpoint' ] );
-		add_action( 'template_redirect', [ $this, 'serveFile' ] );
-		add_action( 'update_option_beplus_scss_settings', [ $this, 'flushRewriteRules' ] );
 
 		register_activation_hook( BE_PLUS_SCSS_COMPILER_MAIN_FILE, [ $this, 'activate' ] );
-		register_deactivation_hook( BE_PLUS_SCSS_COMPILER_MAIN_FILE, [ $this, 'deactivate' ] );
 	}
 
 	public function activate(): void {
-		$this->registerEndpoint();
 		update_option( self::VERSION_OPTION, self::VERSION );
-		flush_rewrite_rules();
-	}
-
-	public function deactivate(): void {
-		flush_rewrite_rules();
-	}
-
-	public function flushRewriteRules(): void {
-		$this->registerEndpoint();
-		flush_rewrite_rules();
-	}
-
-	public function registerEndpoint(): void {
-		add_rewrite_rule( '^beplus-scss/([^/]+)$', 'index.php?beplus_scss_file=$matches[1]', 'top' );
-		add_filter(
-			'query_vars',
-			static function ( array $vars ): array {
-				$vars[] = 'beplus_scss_file';
-
-				return $vars;
-			}
-		);
 	}
 
 	public function onEnqueueScripts(): void {
@@ -71,19 +45,26 @@ final class Plugin {
 			return;
 		}
 		$settings = SettingsPage::currentSettings();
-		$scssDir  = $settings['scss_dir'];
-		$cssDir   = $settings['css_dir'];
-		if ( '' === $scssDir || '' === $cssDir || ! is_dir( $scssDir ) || ! is_dir( $cssDir ) ) {
+		if ( '' === $settings['scss_dir'] || '' === $settings['css_dir'] ) {
+			return;
+		}
+		$scssDir = SettingsPage::absPath( $settings['scss_dir'] );
+		$cssDir  = SettingsPage::absPath( $settings['css_dir'] );
+		if ( ! is_dir( $scssDir ) || ! is_dir( $cssDir ) ) {
 			return;
 		}
 
 		if ( 'auto' === $settings['compile_mode'] && ! self::$autoCompiled ) {
 			self::$autoCompiled = true;
-			$this->compileChangedEntries( $settings );
+			$this->compileChangedEntries( $settings, $scssDir, $cssDir );
+		}
+
+		if ( ! $settings['enqueue'] ) {
+			return;
 		}
 
 		/** @var Style[] $styles */
-		$styles = $this->buildStyles( $settings, $cssDir );
+		$styles = $this->buildStyles( $cssDir );
 		$styles = apply_filters( 'beplus_scss/enqueue', $styles );
 		if ( ! is_array( $styles ) ) {
 			return;
@@ -102,90 +83,49 @@ final class Plugin {
 		check_admin_referer( SettingsPage::NONCE_FIELD );
 
 		$settings = SettingsPage::currentSettings();
-		$compiled = $this->compileAllEntries( $settings );
-		$msg      = $compiled ? 'compiled' : 'error';
+		if ( '' === $settings['scss_dir'] || '' === $settings['css_dir'] ) {
+			$msg = 'error';
+		} else {
+			$scssDir = SettingsPage::absPath( $settings['scss_dir'] );
+			$cssDir  = SettingsPage::absPath( $settings['css_dir'] );
+			$msg     = $this->compileAllEntries( $settings, $scssDir, $cssDir ) ? 'compiled' : 'error';
+		}
 
 		wp_safe_redirect( add_query_arg( 'msg', $msg, admin_url( 'admin.php?page=' . SettingsPage::MENU_SLUG ) ) );
 		exit;
 	}
 
-	public function serveFile(): void {
-		$file = get_query_var( 'beplus_scss_file' );
-		if ( ! is_string( $file ) || '' === $file ) {
-			return;
-		}
-		$file     = rawurldecode( (string) $file );
-		$settings = SettingsPage::currentSettings();
-		$cssDir   = $settings['css_dir'];
-		if ( '' === $cssDir ) {
-			return;
-		}
-
-		if ( ! $this->isServeable( $file ) ) {
-			status_header( 404 );
-			nocache_headers();
-			exit;
-		}
-
-		$realDir = realpath( $cssDir );
-		$real    = realpath( $cssDir . '/' . $file );
-		if ( false === $real || false === $realDir || 0 !== strpos( $real, $realDir . '/' ) ) {
-			status_header( 404 );
-			exit;
-		}
-
-		$mime = 'map' === pathinfo( $real, PATHINFO_EXTENSION ) ? 'application/json' : 'text/css';
-		header( 'Content-Type: ' . $mime );
-		header( 'Content-Length: ' . (string) filesize( $real ) );
-		readfile( $real );
-		exit;
-	}
-
-	private function isServeable( string $file ): bool {
-		$ext = pathinfo( $file, PATHINFO_EXTENSION );
-		if ( ! in_array( $ext, [ 'css', 'map' ], true ) ) {
-			return false;
-		}
-
-		return 0 !== strpos( $file, '.' );
-	}
-
 	/**
-	 * @param ScssSettings $settings
 	 * @return Style[]
 	 */
-	private function buildStyles( array $settings, string $cssDir ): array {
-		$webRoot = ! empty( $settings['web_root'] );
-		$baseUrl = $webRoot
-			? home_url( '/' ) . ltrim( substr( $cssDir, strlen( ABSPATH ) ), '/' )
-			: home_url( '/beplus-scss' );
+	private function buildStyles( string $cssDir ): array {
+		$baseUrl = home_url( '/' ) . ltrim( substr( $cssDir, strlen( ABSPATH ) ), '/' );
 
-		return Enqueue::styles( $cssDir, $webRoot, $baseUrl );
+		return Enqueue::styles( $cssDir, $baseUrl, $this->compiledFiles() );
 	}
 
 	/**
 	 * @param ScssSettings $settings
 	 */
-	private function compileChangedEntries( array $settings ): void {
-		$entries = Scanner::scan( $settings['scss_dir'] );
+	private function compileChangedEntries( array $settings, string $scssDir, string $cssDir ): void {
+		$entries = Scanner::scan( $scssDir );
 		/** @var array<array-key, mixed> $storedOption */
 		$storedOption = get_option( self::FINGERPRINTS_OPTION, [] );
-		$stored       = array_filter( $storedOption, 'is_string' );
 		/** @var array<string, string> $stored */
-		$stored  = array_filter( $stored, 'is_string', ARRAY_FILTER_USE_BOTH );
-		$changed = Detector::changedEntries( $entries, $stored, $settings['scss_dir'] );
+		$stored  = array_filter( $storedOption, 'is_string' );
+		$changed = Detector::changedEntries( $entries, $stored, $scssDir );
 		if ( [] === $changed ) {
 			return;
 		}
-		$this->compileEntries( $settings, $entries, $changed );
+		$this->compileEntries( $settings, $entries, $changed, $scssDir, $cssDir );
 	}
 
 	/**
 	 * @param ScssSettings $settings
 	 */
-	private function compileAllEntries( array $settings ): bool {
-		$entries = Scanner::scan( $settings['scss_dir'] );
-		$this->compileEntries( $settings, $entries, $entries );
+	private function compileAllEntries( array $settings, string $scssDir, string $cssDir ): bool {
+		$entries = Scanner::scan( $scssDir );
+		$this->compileEntries( $settings, $entries, $entries, $scssDir, $cssDir );
 
 		return ! $this->hasCompileError();
 	}
@@ -195,22 +135,20 @@ final class Plugin {
 	 * @param string[]                   $entries
 	 * @param string[]                   $toCompile
 	 */
-	private function compileEntries( array $settings, array $entries, array $toCompile ): void {
+	private function compileEntries( array $settings, array $entries, array $toCompile, string $scssDir, string $cssDir ): void {
 		/** @var CompilerInterface $compiler */
 		$compiler = apply_filters( 'beplus_scss/compiler', new ScssPhpCompiler() );
 		/** @var array<mixed> $rawImportPaths */
-		$rawImportPaths = apply_filters( 'beplus_scss/import_paths', [ $settings['scss_dir'] ] );
+		$rawImportPaths = apply_filters( 'beplus_scss/import_paths', [ $scssDir ] );
 		$importPaths    = array_values( array_filter( $rawImportPaths, 'is_string' ) );
 		if ( [] === $importPaths ) {
-			$importPaths = [ $settings['scss_dir'] ];
+			$importPaths = [ $scssDir ];
 		}
 		$config       = new CompileConfig(
 			$importPaths,
 			! empty( $settings['minify'] ),
 			! empty( $settings['source_map'] )
 		);
-		$scssDir      = $settings['scss_dir'];
-		$cssDir       = $settings['css_dir'];
 		$fingerprints = get_option( self::FINGERPRINTS_OPTION, [] );
 		$fingerprints = is_array( $fingerprints ) ? $fingerprints : [];
 
@@ -237,6 +175,7 @@ final class Plugin {
 					if ( null !== $result->getMap() ) {
 						Writer::writeMap( $result->getMap(), $cssDir . '/' . $dest );
 					}
+					$this->registerCompiledPath( ltrim( $dest, '/' ) );
 					$this->clearError( $relPath );
 				} catch ( \Throwable $e ) {
 					$this->setError( $relPath, $e->getMessage() );
@@ -247,6 +186,42 @@ final class Plugin {
 			$fingerprints[ $relPath ] = Scanner::fingerprint( $scssDir );
 		}
 		update_option( self::FINGERPRINTS_OPTION, $fingerprints );
+		$this->pruneCompiledPaths( $cssDir );
+	}
+
+	/**
+	 * @return string[]
+	 */
+	private function compiledFiles(): array {
+		$stored = get_option( self::COMPILED_OPTION, [] );
+		if ( ! is_array( $stored ) ) {
+			return [];
+		}
+
+		return array_values( array_filter( $stored, 'is_string' ) );
+	}
+
+	private function registerCompiledPath( string $relPath ): void {
+		$compiled = $this->compiledFiles();
+		if ( ! in_array( $relPath, $compiled, true ) ) {
+			$compiled[] = $relPath;
+			update_option( self::COMPILED_OPTION, array_values( $compiled ) );
+		}
+	}
+
+	private function pruneCompiledPaths( string $cssDir ): void {
+		$compiled = $this->compiledFiles();
+		$kept     = array_values(
+			array_filter(
+				$compiled,
+				static function ( string $relPath ) use ( $cssDir ): bool {
+					return is_file( $cssDir . '/' . $relPath );
+				}
+			)
+		);
+		if ( $kept !== $compiled ) {
+			update_option( self::COMPILED_OPTION, $kept );
+		}
 	}
 
 	private function clearError( string $entry ): void {

@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-A public-ready WordPress plugin that compiles SCSS to CSS. Developers declare a **SCSS source directory** and a **CSS destination directory** in the admin; the plugin scans SCSS following a *mirror structure*, automatically recompiles when files change (`auto` mode) or on manual trigger (`manual` mode), and enqueues the CSS on the frontend.
+A public-ready WordPress plugin that compiles SCSS to CSS. Developers declare an **SCSS source directory** and a **CSS destination directory** as **relative paths inside the active theme** (e.g. `assets/scss`, `assets/css`); the plugin scans SCSS following a *mirror structure*, recompiles when files change (`auto` mode) or on manual trigger (`manual` mode), and — only when the `enqueue` option is enabled — enqueues the compiled CSS on the frontend. Out of the box the plugin's job is purely **SCSS → CSS inside the active theme**; delivery is opt-in.
 
 Purpose: this is the **solid core** — the shared knowledge base that lets newcomers (both humans and AI agents) understand the design and implement code without drifting from the architecture.
 
@@ -52,29 +52,32 @@ src/
 
 ## 3. Settings Layer
 
-Top-level admin menu: title "Beplus SCSS", slug `beplus-scss`, capability `manage_options`. Uses the Settings API.
+Submenu under the **Settings** menu (`options-general.php`): title "Beplus SCSS", slug `beplus-scss`, capability `manage_options`. Uses the Settings API.
+
+**Scope contract**: the plugin operates **only inside the active theme** (`get_stylesheet_directory()`, i.e. the theme currently rendering the frontend, parent or child). Users enter **relative paths** from that theme root (e.g. `assets/scss`, `assets/css`); the plugin resolves them against the theme directory. This keeps the blast radius bounded to the theme and makes paths portable across environments.
 
 Single option, an array under key `beplus_scss_settings`:
 
 | Key            | Type   | Meaning                                                |
 |----------------|--------|--------------------------------------------------------|
-| `scss_dir`     | string | SCSS source directory, absolute (e.g. `/package-main/assets/scss/`) |
-| `css_dir`      | string | CSS destination directory, absolute (e.g. `/package-main/asset/css/`) |
+| `scss_dir`     | string | SCSS source directory, **relative to the active theme** (e.g. `assets/scss`). Stored normalized without leading/trailing `/`. |
+| `css_dir`      | string | CSS destination directory, **relative to the active theme** (e.g. `assets/css`). Same normalization. |
 | `compile_mode` | enum   | `auto` (recompile when files change) / `manual` (compile via button) |
 | `source_map`   | bool   | emit `.css.map` next to the CSS file when enabled       |
 | `minify`       | bool   | compact output                                          |
-| `web_root`     | bool   | computed at Save: `0 === strpos( $css_dir . '/', ABSPATH )` (PHP 7.4-safe prefix check) |
+| `enqueue`      | bool   | when `true`, auto-enqueue the compiled CSS on the frontend; when `false` (default), the plugin only compiles and the developer enqueues manually |
 
-**Defaults** (fresh install / empty option): `scss_dir=''`, `css_dir=''`, `compile_mode='auto'`, `source_map=false`, `minify=false`, `web_root=false`. Until both paths are valid and saved, the plugin is inactive: nothing is enqueued and the rewrite rule is not served.
+**Defaults** (fresh install / empty option): `scss_dir=''`, `css_dir=''`, `compile_mode='auto'`, `source_map=false`, `minify=false`, `enqueue=false`. Until both paths are valid and saved, the plugin is inactive: nothing is compiled and nothing is enqueued.
 
 **Validate on Save** (in the `sanitize_callback` of `register_setting`):
-- `scss_dir`: exists → `is_dir()` → `is_readable()` → contains ≥ 1 `.scss` file that is not a `_*.scss` partial.
-- `css_dir`: exists → `is_dir()` → `is_writable()`.
+- Normalize each relative path: trim whitespace, strip leading/trailing `/`, collapse to a clean relative form. Reject `..` segments (path traversal) — the resolved absolute path must stay inside the theme directory.
+- Resolve `abs = get_stylesheet_directory() . '/' . $relative` and validate:
+  - `scss_dir`: `is_dir()` → `is_readable()` → contains ≥ 1 `.scss` file that is not a `_*.scss` partial.
+  - `css_dir`: `is_dir()` → `is_writable()`.
 - On failure → `add_settings_error`, red error in admin, **previous value kept** for the invalid field.
-- Normalize paths: `wp_normalize_path`, resolve relative → absolute, strip trailing `/`, store canonical. Dot-dot traversal outside the filesystem root is rejected.
-- Store `web_root` computed as above.
+- Store the **relative** paths (theme-scoped) in the option.
 
-**URL for the frontend** (derived, not stored): if `web_root` → `home_url( '/' ) . ltrim( substr( $css_dir, strlen( ABSPATH ) ), '/' )`; otherwise the endpoint from Section 6.
+**URL for the frontend** (derived, not stored): because the theme always lives under `ABSPATH`, the URL is always `home_url( '/' ) . ltrim( substr( abs_css_dir, strlen( ABSPATH ) ), '/' )`. Files are served directly by the web server; there is no rewrite endpoint.
 
 **"Compile now" button** (works in both modes; this is how `manual` recompiles):
 - Submit to `admin-post.php?action=beplus_scss_compile` (GET), nonce field `beplus_scss_compile_nonce`, capability `manage_options`, nonce check via `check_admin_referer`.
@@ -115,18 +118,15 @@ ScssPhpCompiler   // default backend (scssphp library)
 
 ## 6. Enqueue + Delivery
 
-- `Enqueue` is pure: `Enqueue::styles(string $cssDir, bool $webRoot, string $baseUrl): array` returns `Value\Style` DTOs `{ handle, url, version }`, one per `.css` file in `css_dir`, recursing like the scanner (`.map` files ignored).
+- `Enqueue` is pure: `Enqueue::styles(string $cssDir, string $baseUrl, array $registeredFiles): array` returns `Value\Style` DTOs `{ handle, url, version }`, one per `.css` file in `css_dir` **that is registered as compiled by the plugin**, recursing like the scanner (`.map` files ignored). `$registeredFiles` is the list of relative paths (from `css_dir`) the plugin actually wrote — passing it in keeps `Enqueue` WordPress-agnostic and guarantees pre-existing CSS in `css_dir` (e.g. a theme's own `editor-style.css`) is **never** enqueued.
 - Handle: `beplus-scss-` + relative path slugified (`/` → `-`, `.` stripped). Examples: `beplus-scss-main`, `beplus-scss-modules-card`.
 - **Cache-bust**: `version = filemtime( css_file )`.
-- Glue: `Plugin` maps each `Style` to `wp_enqueue_style( $style->handle, $style->url, [], $style->version )` and lets the `beplus_scss/enqueue` filter reshape the list first.
-- **URL resolution**:
-  - `web_root === true` → `home_url()` + relative path from `ABSPATH` (Section 3 formula).
-  - `web_root === false` → internal rewrite endpoint.
-- **Endpoint** (`web_root === false` only): rewrite rule `^beplus-scss/([^/]+)$` → query var `beplus_scss_file`; handled on `template_redirect`.
-  - **URL format**: `home_url( '/beplus-scss/' ) . rawurlencode( $relativePath )`, where `$relativePath` keeps `/` separators (e.g. `modules/card.css`). `rawurlencode()` turns them into `%2F`, so the single-segment `[^/]+` rule still matches; the handler applies `rawurldecode()` to the query var **before** resolving the real path.
-  - Servable files: only `.css` and `.map`, resolved via `realpath()` and only when the real path is inside `realpath( $css_dir )` (string-prefix check) — blocks path traversal.
-  - Served with `readfile()` + correct `Content-Type`/`Content-Length`.
-  - `flush_rewrite_rules` on activation **and** when settings change (hook into `update_option_beplus_scss_settings`).
+- Glue: `Plugin` maps each `Style` to `wp_enqueue_style( $style->handle, $style->url, [], $style->version )` — gated on `enqueue === true` — and lets the `beplus_scss/enqueue` filter reshape the list first.
+- **URL resolution**: always `home_url( '/' ) . ltrim( substr( abs_css_dir, strlen( ABSPATH ) ), '/' )` because the theme lives under `ABSPATH`. No rewrite endpoint exists.
+
+**Compiled-file registry** — option `beplus_scss_compiled` (`array`, relative paths from `css_dir`, e.g. `main.css`, `modules/card.css`):
+- Maintained by the `Plugin` glue in `compileEntries`: after writing a CSS file, its relative path is added to the registry; stale entries whose file no longer exists are pruned. The map file `.css.map` is not registered (only `.css`).
+- Consumed by `Enqueue::styles()` as `$registeredFiles`. This is the single source of truth for "what did the plugin compile" used by both auto- and manual-mode enqueueing.
 
 ## 7. Hooks / Filter API (extensibility)
 
@@ -154,7 +154,7 @@ Every filter has a sensible default, applied in the `Plugin` glue (never inside 
 
 ```
 Plugin Name: Beplus SCSS Compiler
-Description: Compiles SCSS to CSS. Declare an SCSS source directory and a CSS destination directory in the admin; the plugin recompiles on change (auto) or on demand (manual) and enqueues the result.
+Description: Compiles SCSS to CSS. Declare an SCSS source directory and a CSS destination directory in the admin; the plugin recompiles on change (auto) or on demand (manual), and can enqueue the compiled CSS.
 Version: 1.0.0
 Requires at least: 6.0
 Requires PHP: 7.4
@@ -167,9 +167,9 @@ Domain Path: /languages
 ```
 
 - Bootstrap guard: if `vendor/autoload.php` is missing → admin notice ("run `composer install` in the plugin directory") + `return` — never crash.
-- The main file instantiates `Beplus\ScssCompiler\Plugin` and calls `Plugin::register()`, which hooks everything: menu, settings, `wp_enqueue_scripts`, `admin_post`, the rewrite endpoint, activation, deactivation, and the `beplus_scss/*` glue filters.
-- Activation: `flush_rewrite_rules()` + store `beplus_scss_version` (plugin version). Deactivation: `flush_rewrite_rules()`.
-- `uninstall.php`: deletes exactly `beplus_scss_settings`, `beplus_scss_fingerprints`, `beplus_scss_last_error`, `beplus_scss_version`.
+- The main file instantiates `Beplus\ScssCompiler\Plugin` and calls `Plugin::register()`, which hooks everything: menu, settings, `wp_enqueue_scripts`, `admin_post`, activation, deactivation, and the `beplus_scss/*` glue filters.
+- Activation: store `beplus_scss_version` (plugin version). Deactivation: no cleanup. (No rewrite rules exist, so nothing to flush.)
+- `uninstall.php`: deletes exactly `beplus_scss_settings`, `beplus_scss_fingerprints`, `beplus_scss_compiled`, `beplus_scss_last_error`, `beplus_scss_version`.
 - PSR-4 autoload: namespace `Beplus\ScssCompiler\`, directory `src/`.
 - Textdomain `beplus-scss`, pot at `languages/beplus-scss.pot`, `readme.txt` present (public-ready).
 - WP Coding Standards (phpcs) wired into pre-commit; PHPStan at the highest level; PHP 7.4 compatibility enforced (phpcs `PHPCompatibility`, `testVersion 7.4-`).
@@ -188,7 +188,7 @@ Domain Path: /languages
 - i18n pot: `composer i18n:pot` → `wp i18n make-pot . languages/beplus-scss.pot`.
 - **Tests**:
   - Unit (`composer test` → `phpunit --testsuite unit`): pure layers — `Scanner`, `Detector`, `Writer` (temp dirs), `Enqueue`, `Value\CompileConfig`/`CompiledResult`, `ScssPhpCompiler` (real scssphp, fixtures under `tests/fixtures/`), fingerprint.
-  - Integration (`composer test:integration` → `phpunit --testsuite integration`, run inside `wp-env`): settings save/validate, compile-now, enqueue handles/URLs, endpoint serving + traversal blocking, the six filters.
+  - Integration (`composer test:integration` → `phpunit --testsuite integration`, run inside `wp-env`): settings save/validate, compile-now, registry maintenance, enqueue handles/URLs (gated on `enqueue=true`), the six filters.
 
 ---
 
@@ -202,16 +202,16 @@ Domain Path: /languages
 | Settings class | `Beplus\ScssCompiler\Settings\SettingsPage` |
 | Options register | `beplus_scss_settings` (array, keys per Section 3) |
 | Fingerprints option | `beplus_scss_fingerprints` |
+| Compiled registry | `beplus_scss_compiled` (array of relative paths from `css_dir`) |
 | Last error option | `beplus_scss_last_error` |
 | Version option | `beplus_scss_version` |
-| uninstall.php deletes | exactly the 4 options above |
-| Menu | Top-level, slug `beplus-scss`, `manage_options` |
+| uninstall.php deletes | exactly the 5 options above |
+| Menu | Submenu of Settings (`options-general.php`), slug `beplus-scss`, `manage_options` |
 | Nonce (compile-now) | `beplus_scss_compile_nonce` |
 | Admin-post action | `beplus_scss_compile` |
-| Rewrite rule | `^beplus-scss/([^/]+)$` → `beplus_scss_file` |
 | Handle prefix | `beplus-scss-` (slugified relative path) |
 | Filters | `beplus_scss/compiler`, `/import_paths`, `/exclude`, `/write_path`, `/enqueue`, `/error` |
-| Defaults | paths empty, `auto`, `source_map=false`, `minify=false` |
+| Defaults | paths empty, `auto`, `source_map=false`, `minify=false`, `enqueue=false` |
 | Textdomain / domain path | `beplus-scss` / `/languages` |
 | POT | `languages/beplus-scss.pot` |
 | WP min / PHP min | 6.0 / 7.4 |

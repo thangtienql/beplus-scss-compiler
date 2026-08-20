@@ -9,67 +9,92 @@ use Beplus\ScssCompiler\Settings\SettingsPage;
  */
 final class SettingsPageTest extends \WP_UnitTestCase {
 
-	private $fixtures;
-	private $tmp;
+	/** @var string */
+	private $rel;
+	/** @var string */
+	private $themeDir;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->fixtures = dirname( __DIR__ ) . '/fixtures';
-		$this->tmp      = sys_get_temp_dir() . '/beplus-settings-' . uniqid();
-		mkdir( $this->tmp, 0777, true );
+		$this->themeDir = get_stylesheet_directory();
+		$this->rel      = 'beplus-settings-' . uniqid();
+		mkdir( $this->themeDir . '/' . $this->rel . '/scss', 0777, true );
+		mkdir( $this->themeDir . '/' . $this->rel . '/css', 0777, true );
+		file_put_contents( $this->themeDir . '/' . $this->rel . '/scss/main.scss', '$c: #fff; .x { color: $c; }' );
 	}
 
 	protected function tearDown(): void {
-		self::rrmdir( $this->tmp );
+		self::rrmdir( $this->themeDir . '/' . $this->rel );
 		delete_option( SettingsPage::OPTION_NAME );
 		parent::tearDown();
 	}
 
-	public function test_sanitize_keeps_previous_value_on_invalid_scss_dir(): void {
+	public function test_sanitize_stores_relative_paths_and_toggles_enqueue(): void {
 		$page = new SettingsPage();
-		$old  = [
-			'scss_dir'     => '/prev',
-			'css_dir'      => $this->tmp,
-			'compile_mode' => 'auto',
-			'source_map'   => false,
-			'minify'       => false,
-			'web_root'     => false,
-		];
-		update_option( SettingsPage::OPTION_NAME, $old );
-
-		$out = $page->sanitize(
+		$out  = $page->sanitize(
 			[
-				'scss_dir'     => '/non/existent',
-				'css_dir'      => $this->tmp,
-				'compile_mode' => 'manual',
-				'source_map'   => '',
-				'minify'       => '',
-			]
-		);
-
-		self::assertSame( '/prev', $out['scss_dir'] );
-		self::assertSame( $this->tmp, $out['css_dir'] );
-		self::assertSame( 'manual', $out['compile_mode'] );
-	}
-
-	public function test_sanitize_accepts_valid_dirs_and_flags_toggles(): void {
-		$page = new SettingsPage();
-
-		$out = $page->sanitize(
-			[
-				'scss_dir'     => $this->fixtures . '/scss',
-				'css_dir'      => $this->tmp,
+				'scss_dir'     => $this->rel . '/scss',
+				'css_dir'      => $this->rel . '/css',
 				'compile_mode' => 'auto',
 				'source_map'   => '1',
 				'minify'       => '1',
+				'enqueue'      => '1',
 			]
 		);
 
-		self::assertSame( $this->fixtures . '/scss', $out['scss_dir'] );
-		self::assertSame( $this->tmp, $out['css_dir'] );
-		self::assertTrue( $out['source_map'] );
-		self::assertTrue( $out['minify'] );
-		self::assertIsBool( $out['web_root'] );
+		self::assertSame( $this->rel . '/scss', $out['scss_dir'] );
+		self::assertSame( $this->rel . '/css', $out['css_dir'] );
+		self::assertTrue( $out['enqueue'] );
+		self::assertArrayNotHasKey( 'web_root', $out );
+	}
+
+	public function test_sanitize_rejects_dotdot_segments(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'scss_dir'     => $this->rel . '/scss',
+				'css_dir'      => $this->rel . '/css',
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => false,
+			]
+		);
+		$page = new SettingsPage();
+		$out  = $page->sanitize(
+			[
+				'scss_dir' => '../outside',
+				'css_dir'  => $this->rel . '/css',
+			]
+		);
+
+		self::assertSame( $this->rel . '/scss', $out['scss_dir'] );
+	}
+
+	public function test_sanitize_keeps_previous_value_on_invalid_scss_dir(): void {
+		$old = [
+			'scss_dir'     => $this->rel . '/scss',
+			'css_dir'      => $this->rel . '/css',
+			'compile_mode' => 'auto',
+			'source_map'   => false,
+			'minify'       => false,
+			'enqueue'      => false,
+		];
+		update_option( SettingsPage::OPTION_NAME, $old );
+
+		$page = new SettingsPage();
+		$out  = $page->sanitize(
+			[
+				'scss_dir'     => $this->rel . '/nonexistent',
+				'css_dir'      => $this->rel . '/css',
+				'compile_mode' => 'manual',
+			]
+		);
+
+		self::assertSame( $this->rel . '/scss', $out['scss_dir'] );
+		self::assertSame( $this->rel . '/css', $out['css_dir'] );
+		self::assertSame( 'manual', $out['compile_mode'] );
+		self::assertFalse( $out['enqueue'] );
 	}
 
 	/**
@@ -82,6 +107,101 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		$page->registerMenu();
 		$page->registerSettings();
 		self::assertTrue( true );
+	}
+
+	public function test_menu_registers_as_settings_submenu(): void {
+		$page = new SettingsPage();
+		$page->registerMenu();
+
+		$submenu = $GLOBALS['submenu'] ?? [];
+		self::assertArrayHasKey( 'options-general.php', $submenu );
+
+		$slugs = wp_list_pluck( $submenu['options-general.php'], 2 );
+		self::assertContains( SettingsPage::MENU_SLUG, $slugs );
+	}
+
+	public function test_render_page_outputs_modern_ui_markup(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'scss_dir'     => $this->rel . '/scss',
+				'css_dir'      => $this->rel . '/css',
+				'compile_mode' => 'manual',
+				'source_map'   => true,
+				'minify'       => false,
+				'enqueue'      => true,
+			]
+		);
+		$_GET['msg'] = 'compiled';
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+		unset( $_GET['msg'] );
+
+		self::assertStringContainsString( 'beplus-hero', $html );
+		self::assertStringContainsString( 'beplus-toast-success', $html );
+		self::assertStringContainsString( 'beplus-stats', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[compile_mode]"', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[source_map]"', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[enqueue]"', $html );
+		self::assertStringContainsString( 'admin-post.php', $html );
+		self::assertStringContainsString( 'beplus-btn-compile', $html );
+	}
+
+	public function test_render_fields_placeholder_is_theme_relative(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'scss_dir'     => '',
+				'css_dir'      => '',
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => false,
+			]
+		);
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertStringContainsString( 'placeholder="assets/scss"', $html );
+		self::assertStringContainsString( 'placeholder="assets/css"', $html );
+		self::assertStringNotContainsString( 'wp-content/themes/your-theme', $html );
+	}
+
+	public function test_render_toggles_are_clickable_labels(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'scss_dir'     => '',
+				'css_dir'      => '',
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => false,
+			]
+		);
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertSame( 3, substr_count( $html, '<label class="beplus-toggle">' ) );
+		self::assertSame( 3, substr_count( $html, '</label>' ) );
+		foreach ( [ 'source_map', 'minify', 'enqueue' ] as $name ) {
+			self::assertMatchesRegularExpression(
+				'/<label class="beplus-toggle">\s*<input type="checkbox" name="beplus_scss_settings\[' . preg_quote( $name, '/' ) . '\]"/',
+				$html
+			);
+		}
 	}
 
 	private static function rrmdir( string $dir ): void {

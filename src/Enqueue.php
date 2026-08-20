@@ -7,9 +7,10 @@ use Beplus\ScssCompiler\Value\Style;
 final class Enqueue {
 
 	/**
+	 * @param string[] $registeredFiles relative paths from $cssDir the plugin actually compiled
 	 * @return Style[] Styles ready to be enqueued, ordered by handle.
 	 */
-	public static function styles( string $cssDir, bool $webRoot, string $baseUrl ): array {
+	public static function styles( string $cssDir, string $baseUrl, array $registeredFiles ): array {
 		$styles = [];
 		$files  = self::splFileInfoIterator( $cssDir );
 
@@ -24,10 +25,11 @@ final class Enqueue {
 			if ( 'css' !== $file->getExtension() ) {
 				continue;
 			}
+			if ( ! in_array( $relPath, $registeredFiles, true ) ) {
+				continue;
+			}
 			$handle   = 'beplus-scss-' . str_replace( [ '/', '.' ], [ '-', '' ], substr( $relPath, 0, -4 ) );
-			$url      = $webRoot
-				? ( rtrim( $baseUrl, '/' ) . '/' . $relPath )
-				: ( rtrim( $baseUrl, '/' ) . '/' . rawurlencode( $relPath ) );
+			$url      = rtrim( $baseUrl, '/' ) . '/' . $relPath;
 			$styles[] = new Style( $handle, $url, (int) $file->getMTime() );
 		}
 
