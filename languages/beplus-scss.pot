@@ -62,6 +62,17 @@ msgstr ""
 msgid "Output"
 msgstr ""
 
+#. translators: %d: Number of SCSS/CSS pairs.
+msgid "%d outputs"
+msgstr ""
+
+#. translators: %d: Pair number.
+msgid "Pair %d"
+msgstr ""
+
+msgid "Pair"
+msgstr ""
+
 msgid "Relative to your active theme. Must be writable by the server."
 msgstr ""
 

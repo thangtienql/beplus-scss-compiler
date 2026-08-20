@@ -11,6 +11,7 @@ use Beplus\ScssCompiler\Value\Style;
 
 /**
  * @phpstan-import-type ScssSettings from SettingsPage
+ * @phpstan-import-type ScssPair from SettingsPage
  */
 final class Plugin {
 
@@ -45,27 +46,39 @@ final class Plugin {
 			return;
 		}
 		$settings = SettingsPage::currentSettings();
-		if ( '' === $settings['scss_dir'] || '' === $settings['css_dir'] ) {
-			return;
-		}
-		$scssDir = SettingsPage::absPath( $settings['scss_dir'] );
-		$cssDir  = SettingsPage::absPath( $settings['css_dir'] );
-		if ( ! is_dir( $scssDir ) || ! is_dir( $cssDir ) ) {
+		if ( [] === $settings['pairs'] ) {
 			return;
 		}
 
 		if ( 'auto' === $settings['compile_mode'] && ! self::$autoCompiled ) {
 			self::$autoCompiled = true;
-			$this->compileChangedEntries( $settings, $scssDir, $cssDir );
+			foreach ( $settings['pairs'] as $pairId => $pair ) {
+				$scssDir = SettingsPage::absPath( $pair['scss_dir'] );
+				$cssDir  = SettingsPage::absPath( $pair['css_dir'] );
+				if ( ! is_dir( $scssDir ) || ! is_dir( $cssDir ) ) {
+					continue;
+				}
+				$this->compileChangedEntries( $settings, $pairId, $scssDir, $cssDir );
+			}
 		}
 
 		if ( ! $settings['enqueue'] ) {
 			return;
 		}
 
-		/** @var Style[] $styles */
-		$styles = $this->buildStyles( $cssDir );
-		$styles = apply_filters( 'beplus_scss/enqueue', $styles );
+		/** @var Style[] $allStyles */
+		$allStyles = [];
+
+		foreach ( $settings['pairs'] as $pairId => $pair ) {
+			$scssDir = SettingsPage::absPath( $pair['scss_dir'] );
+			$cssDir  = SettingsPage::absPath( $pair['css_dir'] );
+			if ( ! is_dir( $scssDir ) || ! is_dir( $cssDir ) ) {
+				continue;
+			}
+			$allStyles = array_merge( $allStyles, $this->buildStyles( $cssDir, $pairId ) );
+		}
+
+		$styles = apply_filters( 'beplus_scss/enqueue', $allStyles );
 		if ( ! is_array( $styles ) ) {
 			return;
 		}
@@ -83,12 +96,17 @@ final class Plugin {
 		check_admin_referer( SettingsPage::NONCE_FIELD );
 
 		$settings = SettingsPage::currentSettings();
-		if ( '' === $settings['scss_dir'] || '' === $settings['css_dir'] ) {
+		if ( [] === $settings['pairs'] ) {
 			$msg = 'error';
 		} else {
-			$scssDir = SettingsPage::absPath( $settings['scss_dir'] );
-			$cssDir  = SettingsPage::absPath( $settings['css_dir'] );
-			$msg     = $this->compileAllEntries( $settings, $scssDir, $cssDir ) ? 'compiled' : 'error';
+			$msg = 'compiled';
+			foreach ( $settings['pairs'] as $pairId => $pair ) {
+				$scssDir = SettingsPage::absPath( $pair['scss_dir'] );
+				$cssDir  = SettingsPage::absPath( $pair['css_dir'] );
+				if ( ! $this->compileAllEntries( $settings, $pairId, $scssDir, $cssDir ) ) {
+					$msg = 'error';
+				}
+			}
 		}
 
 		wp_safe_redirect( add_query_arg( 'msg', $msg, admin_url( 'admin.php?page=' . SettingsPage::MENU_SLUG ) ) );
@@ -98,44 +116,66 @@ final class Plugin {
 	/**
 	 * @return Style[]
 	 */
-	private function buildStyles( string $cssDir ): array {
+	private function buildStyles( string $cssDir, int $pairId ): array {
 		$baseUrl = home_url( '/' ) . ltrim( substr( $cssDir, strlen( ABSPATH ) ), '/' );
 
-		return Enqueue::styles( $cssDir, $baseUrl, $this->compiledFiles() );
+		return Enqueue::styles( $cssDir, $baseUrl, $this->compiledFiles(), $pairId );
 	}
 
 	/**
 	 * @param ScssSettings $settings
 	 */
-	private function compileChangedEntries( array $settings, string $scssDir, string $cssDir ): void {
-		$entries = Scanner::scan( $scssDir );
-		/** @var array<array-key, mixed> $storedOption */
-		$storedOption = get_option( self::FINGERPRINTS_OPTION, [] );
-		/** @var array<string, string> $stored */
-		$stored  = array_filter( $storedOption, 'is_string' );
-		$changed = Detector::changedEntries( $entries, $stored, $scssDir );
+	private function compileChangedEntries( array $settings, int $pairId, string $scssDir, string $cssDir ): void {
+		$entries   = Scanner::scan( $scssDir );
+		$storedOpt = get_option( self::FINGERPRINTS_OPTION, [] );
+		$stored    = $this->pairStored( is_array( $storedOpt ) ? $storedOpt : [], $pairId );
+		$changed   = Detector::changedEntries( $entries, $stored, $scssDir );
 		if ( [] === $changed ) {
 			return;
 		}
-		$this->compileEntries( $settings, $entries, $changed, $scssDir, $cssDir );
+		$this->compileEntries( $settings, $entries, $changed, $pairId, $scssDir, $cssDir );
 	}
 
 	/**
 	 * @param ScssSettings $settings
 	 */
-	private function compileAllEntries( array $settings, string $scssDir, string $cssDir ): bool {
+	private function compileAllEntries( array $settings, int $pairId, string $scssDir, string $cssDir ): bool {
 		$entries = Scanner::scan( $scssDir );
-		$this->compileEntries( $settings, $entries, $entries, $scssDir, $cssDir );
+		$this->compileEntries( $settings, $entries, $entries, $pairId, $scssDir, $cssDir );
 
 		return ! $this->hasCompileError();
 	}
 
 	/**
-	 * @param ScssSettings $settings
-	 * @param string[]                   $entries
-	 * @param string[]                   $toCompile
+	 * Extract the stored fingerprints relevant to a pair: keys prefixed with
+	 * "<pairId>:" plus (for pair 0) legacy unprefixed keys.
+	 *
+	 * @param array<array-key, mixed> $storedOption
+	 * @return array<string, string>
 	 */
-	private function compileEntries( array $settings, array $entries, array $toCompile, string $scssDir, string $cssDir ): void {
+	private function pairStored( array $storedOption, int $pairId ): array {
+		$prefix = $pairId . ':';
+		$stored = [];
+		foreach ( $storedOption as $key => $value ) {
+			if ( ! is_string( $key ) || ! is_string( $value ) ) {
+				continue;
+			}
+			$isPrefixed = 0 === strpos( $key, $prefix );
+			$isLegacy   = 0 === $pairId && false === strpos( $key, ':' );
+			if ( $isPrefixed || $isLegacy ) {
+				$stored[ $key ] = $value;
+			}
+		}
+
+		return $stored;
+	}
+
+	/**
+	 * @param ScssSettings $settings
+	 * @param string[]     $entries
+	 * @param string[]     $toCompile
+	 */
+	private function compileEntries( array $settings, array $entries, array $toCompile, int $pairId, string $scssDir, string $cssDir ): void {
 		/** @var CompilerInterface $compiler */
 		$compiler = apply_filters( 'beplus_scss/compiler', new ScssPhpCompiler() );
 		/** @var array<mixed> $rawImportPaths */
@@ -144,18 +184,20 @@ final class Plugin {
 		if ( [] === $importPaths ) {
 			$importPaths = [ $scssDir ];
 		}
-		$config       = new CompileConfig(
+		$config          = new CompileConfig(
 			$importPaths,
 			! empty( $settings['minify'] ),
 			! empty( $settings['source_map'] )
 		);
-		$fingerprints = get_option( self::FINGERPRINTS_OPTION, [] );
-		$fingerprints = is_array( $fingerprints ) ? $fingerprints : [];
+		$rawFingerprints = get_option( self::FINGERPRINTS_OPTION, [] );
+		$fingerprints    = is_array( $rawFingerprints ) ? $rawFingerprints : [];
+		$prefix          = $pairId . ':';
 
 		foreach ( $entries as $entry ) {
-			$relPath = ltrim( str_replace( rtrim( $scssDir, '/' ) . '/', '', $entry ), '/' );
+			$relPath  = ltrim( str_replace( rtrim( $scssDir, '/' ) . '/', '', $entry ), '/' );
+			$entryKey = $prefix . $relPath;
 
-			if ( false !== apply_filters( 'beplus_scss/exclude', false, $entry, $relPath ) ) {
+			if ( false !== apply_filters( 'beplus_scss/exclude', false, $entry, $relPath, $pairId ) ) {
 				continue;
 			}
 
@@ -168,25 +210,33 @@ final class Plugin {
 						Writer::mirrorPath( $entry, $scssDir, $cssDir ),
 						$entry,
 						$scssDir,
-						$cssDir
+						$cssDir,
+						$pairId
 					);
 					$dest   = is_string( $dest ) && '' !== $dest ? $dest : Writer::mirrorPath( $entry, $scssDir, $cssDir );
 					Writer::write( $result->getCss(), $cssDir . '/' . $dest );
 					if ( null !== $result->getMap() ) {
 						Writer::writeMap( $result->getMap(), $cssDir . '/' . $dest );
 					}
-					$this->registerCompiledPath( ltrim( $dest, '/' ) );
-					$this->clearError( $relPath );
+					$this->registerCompiledPath( $prefix . ltrim( $dest, '/' ) );
+					$this->clearError( $entryKey );
 				} catch ( \Throwable $e ) {
-					$this->setError( $relPath, $e->getMessage() );
-					$wpError = new \WP_Error( 'beplus_scss_compile', $e->getMessage(), [ 'entry' => $relPath ] );
-					apply_filters( 'beplus_scss/error', $wpError );
+					$this->setError( $entryKey, $e->getMessage() );
+					$wpError = new \WP_Error(
+						'beplus_scss_compile',
+						$e->getMessage(),
+						[
+							'entry'   => $entryKey,
+							'pair_id' => $pairId,
+						]
+					);
+					apply_filters( 'beplus_scss/error', $wpError, $pairId );
 				}
 			}
-			$fingerprints[ $relPath ] = Scanner::fingerprint( $scssDir );
+			$fingerprints[ $entryKey ] = Scanner::fingerprint( $scssDir );
 		}
 		update_option( self::FINGERPRINTS_OPTION, $fingerprints );
-		$this->pruneCompiledPaths( $cssDir );
+		$this->pruneCompiledPaths( $cssDir, $pairId );
 	}
 
 	/**
@@ -201,20 +251,26 @@ final class Plugin {
 		return array_values( array_filter( $stored, 'is_string' ) );
 	}
 
-	private function registerCompiledPath( string $relPath ): void {
+	private function registerCompiledPath( string $key ): void {
 		$compiled = $this->compiledFiles();
-		if ( ! in_array( $relPath, $compiled, true ) ) {
-			$compiled[] = $relPath;
+		if ( ! in_array( $key, $compiled, true ) ) {
+			$compiled[] = $key;
 			update_option( self::COMPILED_OPTION, array_values( $compiled ) );
 		}
 	}
 
-	private function pruneCompiledPaths( string $cssDir ): void {
+	private function pruneCompiledPaths( string $cssDir, int $pairId ): void {
+		$prefix   = $pairId . ':';
 		$compiled = $this->compiledFiles();
 		$kept     = array_values(
 			array_filter(
 				$compiled,
-				static function ( string $relPath ) use ( $cssDir ): bool {
+				static function ( string $key ) use ( $cssDir, $prefix ): bool {
+					if ( 0 !== strpos( $key, $prefix ) ) {
+						return true;
+					}
+					$relPath = substr( $key, strlen( $prefix ) );
+
 					return is_file( $cssDir . '/' . $relPath );
 				}
 			)
@@ -224,20 +280,20 @@ final class Plugin {
 		}
 	}
 
-	private function clearError( string $entry ): void {
+	private function clearError( string $entryKey ): void {
 		/** @var array<array-key, mixed> $error */
 		$error = get_option( self::LAST_ERROR_OPTION, [] );
-		if ( isset( $error['entry'] ) && $error['entry'] === $entry ) {
+		if ( isset( $error['entry'] ) && $error['entry'] === $entryKey ) {
 			delete_option( self::LAST_ERROR_OPTION );
 		}
 	}
 
-	private function setError( string $entry, string $message ): void {
+	private function setError( string $entryKey, string $message ): void {
 		update_option(
 			self::LAST_ERROR_OPTION,
 			[
 				'time'    => time(),
-				'entry'   => $entry,
+				'entry'   => $entryKey,
 				'message' => $message,
 			]
 		);

@@ -33,8 +33,12 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		$page = new SettingsPage();
 		$out  = $page->sanitize(
 			[
-				'scss_dir'     => $this->rel . '/scss',
-				'css_dir'      => $this->rel . '/css',
+				'pairs'        => [
+					[
+						'scss_dir' => $this->rel . '/scss',
+						'css_dir'  => $this->rel . '/css',
+					],
+				],
 				'compile_mode' => 'auto',
 				'source_map'   => '1',
 				'minify'       => '1',
@@ -42,13 +46,99 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 			]
 		);
 
-		self::assertSame( $this->rel . '/scss', $out['scss_dir'] );
-		self::assertSame( $this->rel . '/css', $out['css_dir'] );
+		self::assertSame( $this->rel . '/scss', $out['pairs'][0]['scss_dir'] );
+		self::assertSame( $this->rel . '/css', $out['pairs'][0]['css_dir'] );
 		self::assertTrue( $out['enqueue'] );
 		self::assertArrayNotHasKey( 'web_root', $out );
 	}
 
 	public function test_sanitize_rejects_dotdot_segments(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs'        => [
+					[
+						'scss_dir' => $this->rel . '/scss',
+						'css_dir'  => $this->rel . '/css',
+					],
+				],
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => false,
+			]
+		);
+		$page = new SettingsPage();
+		$out  = $page->sanitize(
+			[
+				'pairs' => [
+					[
+						'scss_dir' => '../outside',
+						'css_dir'  => $this->rel . '/css',
+					],
+				],
+			]
+		);
+
+		self::assertSame( $this->rel . '/scss', $out['pairs'][0]['scss_dir'] );
+	}
+
+	public function test_sanitize_keeps_previous_value_on_invalid_scss_dir(): void {
+		$old = [
+			'pairs'        => [
+				[
+					'scss_dir' => $this->rel . '/scss',
+					'css_dir'  => $this->rel . '/css',
+				],
+			],
+			'compile_mode' => 'auto',
+			'source_map'   => false,
+			'minify'       => false,
+			'enqueue'      => false,
+		];
+		update_option( SettingsPage::OPTION_NAME, $old );
+
+		$page = new SettingsPage();
+		$out  = $page->sanitize(
+			[
+				'pairs'        => [
+					[
+						'scss_dir' => $this->rel . '/nonexistent',
+						'css_dir'  => $this->rel . '/css',
+					],
+				],
+				'compile_mode' => 'manual',
+			]
+		);
+
+		self::assertSame( $this->rel . '/scss', $out['pairs'][0]['scss_dir'] );
+		self::assertSame( $this->rel . '/css', $out['pairs'][0]['css_dir'] );
+		self::assertSame( 'manual', $out['compile_mode'] );
+		self::assertFalse( $out['enqueue'] );
+	}
+
+	public function test_sanitize_multiple_pairs_and_skips_blank_rows(): void {
+		$page = new SettingsPage();
+		$out  = $page->sanitize(
+			[
+				'pairs' => [
+					[
+						'scss_dir' => $this->rel . '/scss',
+						'css_dir'  => $this->rel . '/css',
+					],
+					[
+						'scss_dir' => '',
+						'css_dir'  => '',
+					],
+				],
+			]
+		);
+
+		self::assertCount( 1, $out['pairs'] );
+		self::assertSame( $this->rel . '/scss', $out['pairs'][0]['scss_dir'] );
+	}
+
+	public function test_current_settings_migrates_legacy_scss_css_keys(): void {
 		update_option(
 			SettingsPage::OPTION_NAME,
 			[
@@ -60,41 +150,11 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 				'enqueue'      => false,
 			]
 		);
-		$page = new SettingsPage();
-		$out  = $page->sanitize(
-			[
-				'scss_dir' => '../outside',
-				'css_dir'  => $this->rel . '/css',
-			]
-		);
 
-		self::assertSame( $this->rel . '/scss', $out['scss_dir'] );
-	}
+		$settings = SettingsPage::currentSettings();
 
-	public function test_sanitize_keeps_previous_value_on_invalid_scss_dir(): void {
-		$old = [
-			'scss_dir'     => $this->rel . '/scss',
-			'css_dir'      => $this->rel . '/css',
-			'compile_mode' => 'auto',
-			'source_map'   => false,
-			'minify'       => false,
-			'enqueue'      => false,
-		];
-		update_option( SettingsPage::OPTION_NAME, $old );
-
-		$page = new SettingsPage();
-		$out  = $page->sanitize(
-			[
-				'scss_dir'     => $this->rel . '/nonexistent',
-				'css_dir'      => $this->rel . '/css',
-				'compile_mode' => 'manual',
-			]
-		);
-
-		self::assertSame( $this->rel . '/scss', $out['scss_dir'] );
-		self::assertSame( $this->rel . '/css', $out['css_dir'] );
-		self::assertSame( 'manual', $out['compile_mode'] );
-		self::assertFalse( $out['enqueue'] );
+		self::assertSame( $this->rel . '/scss', $settings['pairs'][0]['scss_dir'] );
+		self::assertSame( $this->rel . '/css', $settings['pairs'][0]['css_dir'] );
 	}
 
 	/**
@@ -202,6 +262,96 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 				$html
 			);
 		}
+	}
+
+	public function test_render_fields_renders_multiple_pair_rows_and_controls(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs'        => [
+					[
+						'scss_dir' => 'assets/scss',
+						'css_dir'  => 'assets/css',
+					],
+					[
+						'scss_dir' => 'blocks/scss',
+						'css_dir'  => 'blocks/css',
+					],
+				],
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => false,
+			]
+		);
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertSame( 2, substr_count( $html, 'class="beplus-pair-row"' ) );
+		self::assertStringContainsString( '>Pair 1<', $html );
+		self::assertStringContainsString( '>Pair 2<', $html );
+		self::assertStringContainsString( 'class="beplus-btn-remove"', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[pairs][0][scss_dir]"', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[pairs][0][css_dir]"', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[pairs][1][scss_dir]"', $html );
+		self::assertStringContainsString( 'name="beplus_scss_settings[pairs][1][css_dir]"', $html );
+		self::assertStringContainsString( 'id="beplus-add-pair"', $html );
+		self::assertStringContainsString( 'data-remove', $html );
+		self::assertStringContainsString( '__INDEX__', $html );
+		self::assertStringContainsString( 'beplus-pair-template', $html );
+	}
+
+	public function test_stats_output_shows_single_css_dir(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs' => [
+					[
+						'scss_dir' => 'assets/scss',
+						'css_dir'  => 'assets/css',
+					],
+				],
+			]
+		);
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertMatchesRegularExpression( '/>assets\/css</', $html );
+	}
+
+	public function test_stats_output_shows_pair_count_when_multiple_pairs(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs' => [
+					[
+						'scss_dir' => 'assets/scss',
+						'css_dir'  => 'assets/css',
+					],
+					[
+						'scss_dir' => 'pages/scss',
+						'css_dir'  => 'assets/css/pages',
+					],
+				],
+			]
+		);
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertMatchesRegularExpression( '/>2 outputs</', $html );
+		self::assertDoesNotMatchRegularExpression( '/>assets\/css</', $html );
 	}
 
 	public function test_render_page_renders_validation_errors_as_toasts(): void {

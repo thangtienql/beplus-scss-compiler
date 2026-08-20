@@ -40,10 +40,11 @@ final class PluginGlueTest extends \WP_UnitTestCase {
 		$ref    = new \ReflectionMethod( $plugin, 'compileAllEntries' );
 		$ref->setAccessible( true );
 		$settings = SettingsPage::currentSettings();
-		$ref->invoke( $plugin, $settings, SettingsPage::absPath( $settings['scss_dir'] ), SettingsPage::absPath( $settings['css_dir'] ) );
+		$pair     = $settings['pairs'][0];
+		$ref->invoke( $plugin, $settings, 0, SettingsPage::absPath( $pair['scss_dir'] ), SettingsPage::absPath( $pair['css_dir'] ) );
 
 		self::assertFileExists( $theme . '/' . $rel . '/css/main.css' );
-		self::assertSame( [ 'main.css' ], get_option( Plugin::COMPILED_OPTION ) );
+		self::assertSame( [ '0:main.css' ], get_option( Plugin::COMPILED_OPTION ) );
 
 		self::rrmdir( $theme . '/' . $rel );
 	}
@@ -59,11 +60,12 @@ final class PluginGlueTest extends \WP_UnitTestCase {
 		$ref    = new \ReflectionMethod( $plugin, 'compileAllEntries' );
 		$ref->setAccessible( true );
 		$settings = SettingsPage::currentSettings();
-		$ref->invoke( $plugin, $settings, SettingsPage::absPath( $settings['scss_dir'] ), SettingsPage::absPath( $settings['css_dir'] ) );
+		$pair     = $settings['pairs'][0];
+		$ref->invoke( $plugin, $settings, 0, SettingsPage::absPath( $pair['scss_dir'] ), SettingsPage::absPath( $pair['css_dir'] ) );
 
 		$plugin->onEnqueueScripts();
 
-		self::assertArrayHasKey( 'beplus-scss-main', wp_styles()->registered );
+		self::assertArrayHasKey( 'beplus-scss-0-main', wp_styles()->registered );
 
 		self::rrmdir( $theme . '/' . $rel );
 	}
@@ -77,20 +79,76 @@ final class PluginGlueTest extends \WP_UnitTestCase {
 		update_option(
 			SettingsPage::OPTION_NAME,
 			[
-				'scss_dir'     => $rel . '/scss',
-				'css_dir'      => $rel . '/css',
+				'pairs'        => [
+					[
+						'scss_dir' => $rel . '/scss',
+						'css_dir'  => $rel . '/css',
+					],
+				],
 				'compile_mode' => 'auto',
 				'source_map'   => false,
 				'minify'       => false,
 				'enqueue'      => true,
 			]
 		);
-		update_option( Plugin::FINGERPRINTS_OPTION, [ 'main.scss' => 'stored-fingerprint' ] );
+		update_option( Plugin::FINGERPRINTS_OPTION, [ '0:main.scss' => 'stored-fingerprint' ] );
 
 		$plugin = new Plugin();
 		$plugin->onEnqueueScripts();
 
-		self::assertArrayHasKey( 'beplus-scss-main', wp_styles()->registered );
+		self::assertArrayHasKey( 'beplus-scss-0-main', wp_styles()->registered );
+
+		self::rrmdir( $theme . '/' . $rel );
+	}
+
+	public function test_two_pairs_compile_and_enqueue_distinct_handles(): void {
+		if ( is_admin() ) {
+			$this->markTestSkipped( 'Frontend context required.' );
+		}
+		$theme = get_stylesheet_directory();
+		$rel   = 'beplus-glue-' . uniqid();
+		mkdir( $theme . '/' . $rel . '/a/scss', 0777, true );
+		mkdir( $theme . '/' . $rel . '/a/css', 0777, true );
+		mkdir( $theme . '/' . $rel . '/b/scss', 0777, true );
+		mkdir( $theme . '/' . $rel . '/b/css', 0777, true );
+		file_put_contents( $theme . '/' . $rel . '/a/scss/main.scss', '$c: #fff; .x { color: $c; }' );
+		file_put_contents( $theme . '/' . $rel . '/b/scss/main.scss', '$c: #000; .y { color: $c; }' );
+
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs'        => [
+					[
+						'scss_dir' => $rel . '/a/scss',
+						'css_dir'  => $rel . '/a/css',
+					],
+					[
+						'scss_dir' => $rel . '/b/scss',
+						'css_dir'  => $rel . '/b/css',
+					],
+				],
+				'compile_mode' => 'manual',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => true,
+			]
+		);
+
+		$plugin = new Plugin();
+		$ref    = new \ReflectionMethod( $plugin, 'compileAllEntries' );
+		$ref->setAccessible( true );
+		$settings = SettingsPage::currentSettings();
+		$pairA    = $settings['pairs'][0];
+		$pairB    = $settings['pairs'][1];
+		$ref->invoke( $plugin, $settings, 0, SettingsPage::absPath( $pairA['scss_dir'] ), SettingsPage::absPath( $pairA['css_dir'] ) );
+		$ref->invoke( $plugin, $settings, 1, SettingsPage::absPath( $pairB['scss_dir'] ), SettingsPage::absPath( $pairB['css_dir'] ) );
+
+		self::assertFileExists( $theme . '/' . $rel . '/a/css/main.css' );
+		self::assertFileExists( $theme . '/' . $rel . '/b/css/main.css' );
+
+		$plugin->onEnqueueScripts();
+		self::assertArrayHasKey( 'beplus-scss-0-main', wp_styles()->registered );
+		self::assertArrayHasKey( 'beplus-scss-1-main', wp_styles()->registered );
 
 		self::rrmdir( $theme . '/' . $rel );
 	}
@@ -105,8 +163,12 @@ final class PluginGlueTest extends \WP_UnitTestCase {
 		update_option(
 			SettingsPage::OPTION_NAME,
 			[
-				'scss_dir'     => $rel . '/scss',
-				'css_dir'      => $rel . '/css',
+				'pairs'        => [
+					[
+						'scss_dir' => $rel . '/scss',
+						'css_dir'  => $rel . '/css',
+					],
+				],
 				'compile_mode' => 'manual',
 				'source_map'   => false,
 				'minify'       => false,

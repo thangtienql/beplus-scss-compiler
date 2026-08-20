@@ -7,12 +7,14 @@ use Beplus\ScssCompiler\Value\Style;
 final class Enqueue {
 
 	/**
-	 * @param string[] $registeredFiles relative paths from $cssDir the plugin actually compiled
+	 * @param string[] $registeredFiles entries `"<pairId>:<relative_path>"` from $cssDir the plugin actually compiled
+	 * @param int $pairId pair index; pair 0 also accepts legacy unprefixed entries
 	 * @return Style[] Styles ready to be enqueued, ordered by handle.
 	 */
-	public static function styles( string $cssDir, string $baseUrl, array $registeredFiles ): array {
+	public static function styles( string $cssDir, string $baseUrl, array $registeredFiles, int $pairId ): array {
 		$styles = [];
 		$files  = self::splFileInfoIterator( $cssDir );
+		$prefix = $pairId . ':';
 
 		foreach ( $files as $file ) {
 			if ( ! $file->isFile() ) {
@@ -25,10 +27,10 @@ final class Enqueue {
 			if ( 'css' !== $file->getExtension() ) {
 				continue;
 			}
-			if ( ! in_array( $relPath, $registeredFiles, true ) ) {
+			if ( ! self::isRegistered( $relPath, $registeredFiles, $prefix, $pairId ) ) {
 				continue;
 			}
-			$handle   = 'beplus-scss-' . str_replace( [ '/', '.' ], [ '-', '' ], substr( $relPath, 0, -4 ) );
+			$handle   = 'beplus-scss-' . $pairId . '-' . str_replace( [ '/', '.' ], [ '-', '' ], substr( $relPath, 0, -4 ) );
 			$url      = rtrim( $baseUrl, '/' ) . '/' . $relPath;
 			$styles[] = new Style( $handle, $url, (int) $file->getMTime() );
 		}
@@ -41,6 +43,20 @@ final class Enqueue {
 		);
 
 		return $styles;
+	}
+
+	/**
+	 * @param string[] $registeredFiles
+	 */
+	private static function isRegistered( string $relPath, array $registeredFiles, string $prefix, int $pairId ): bool {
+		if ( in_array( $prefix . $relPath, $registeredFiles, true ) ) {
+			return true;
+		}
+		if ( 0 === $pairId && in_array( $relPath, $registeredFiles, true ) ) {
+			return true;
+		}
+
+		return false;
 	}
 
 	private static function isHiddenSegment( string $relPath ): bool {

@@ -60,21 +60,29 @@ Single option, an array under key `beplus_scss_settings`:
 
 | Key            | Type   | Meaning                                                |
 |----------------|--------|--------------------------------------------------------|
-| `scss_dir`     | string | SCSS source directory, **relative to the active theme** (e.g. `assets/scss`). Stored normalized without leading/trailing `/`. |
-| `css_dir`      | string | CSS destination directory, **relative to the active theme** (e.g. `assets/css`). Same normalization. |
+| `pairs`        | array  | list of `{scss_dir, css_dir}` rows. Each pair is an independent SCSS→CSS mapping; the plugin compiles and (when enabled) enqueues every valid pair. |
 | `compile_mode` | enum   | `auto` (recompile when files change) / `manual` (compile via button) |
 | `source_map`   | bool   | emit `.css.map` next to the CSS file when enabled       |
 | `minify`       | bool   | compact output                                          |
 | `enqueue`      | bool   | when `true`, auto-enqueue the compiled CSS on the frontend; when `false` (default), the plugin only compiles and the developer enqueues manually |
 
-**Defaults** (fresh install / empty option): `scss_dir=''`, `css_dir=''`, `compile_mode='auto'`, `source_map=false`, `minify=false`, `enqueue=false`. Until both paths are valid and saved, the plugin is inactive: nothing is compiled and nothing is enqueued.
+Each `pairs` row is `{ 'scss_dir' => string, 'css_dir' => string }` — both
+**relative to the active theme** (e.g. `assets/scss` / `assets/css`), stored
+normalized without leading/trailing `/`. Fully blank rows are dropped on save;
+a row whose path fails validation keeps its previous value and registers a
+row-specific error (`bad_scss_dir_<i>` / `bad_css_dir_<i>`). The legacy
+top-level `scss_dir` / `css_dir` keys mirror the first pair (and are emptied
+when there are no pairs) so older consumers keep working; a fresh read migrates
+legacy values into `pairs[0]` when `pairs` is absent.
 
-**Validate on Save** (in the `sanitize_callback` of `register_setting`):
+**Defaults** (fresh install / empty option): `pairs=[]`, `compile_mode='auto'`, `source_map=false`, `minify=false`, `enqueue=false`. Until at least one valid pair is saved, the plugin is inactive: nothing is compiled and nothing is enqueued.
+
+**Validate on Save** (in the `sanitize_callback` of `register_setting`), per pair row:
 - Normalize each relative path: trim whitespace, strip leading/trailing `/`, collapse to a clean relative form. Reject `..` segments (path traversal) — the resolved absolute path must stay inside the theme directory.
 - Resolve `abs = get_stylesheet_directory() . '/' . $relative` and validate:
   - `scss_dir`: `is_dir()` → `is_readable()` → contains ≥ 1 `.scss` file that is not a `_*.scss` partial.
   - `css_dir`: `is_dir()` → `is_writable()`.
-- On failure → `add_settings_error`, **previous value kept** for the invalid field.
+- A row blank in both paths is skipped. On failure → `add_settings_error`, **previous value kept** for the invalid row.
 - Validation/save errors are rendered by the plugin itself as `beplus-toast beplus-toast-error` boxes **inside** the settings page layout (after the hero, before the status bar). The core `settings_errors()` renderer — which WordPress runs inline via `wp-admin/options-head.php` on every `options-general.php` child — is neutralized on this screen (`settings_page_beplus-scss`): on `admin_notices` (max priority) the plugin captures the `settings_errors` transient into memory, deletes it, and empties the global `$wp_settings_errors`, so the inline `settings_errors()` prints nothing and the default markup never breaks the custom layout. The captured errors are what `renderPage()` renders (falling back to `get_settings_errors()` when nothing was captured). A successful save with no errors shows a green `Settings saved.` toast.
 - Store the **relative** paths (theme-scoped) in the option.
 
@@ -82,7 +90,7 @@ Single option, an array under key `beplus_scss_settings`:
 
 **"Compile now" button** (works in both modes; this is how `manual` recompiles):
 - Submit to `admin-post.php?action=beplus_scss_compile` (GET), nonce field `beplus_scss_compile_nonce`, capability `manage_options`, nonce check via `check_admin_referer`.
-- Runs the same compile pipeline as the Detector but over **all** entries regardless of fingerprint, then `wp_safe_redirect` back with `msg=compiled|error` (read by the settings page to show a toast).
+- Runs the same compile pipeline as the Detector but over **all** entries of **every** saved pair regardless of fingerprint; if any pair fails, `msg=error`, then `wp_safe_redirect` back with `msg=compiled|error` (read by the settings page to show a toast).
 - The `msg` query arg is stripped from the URL client-side (`history.replaceState`) after the toast renders, so a later Save does not re-show a stale compile toast. Compile toasts are only shown when no validation/save notice is pending — errors always win.
 
 ## 4. Compiler Layer
@@ -106,11 +114,11 @@ ScssPhpCompiler   // default backend (scssphp library)
 
 **Scanner** — `Scanner::scan(string $scssDir): array` returns a list of absolute paths for every `.scss` file that does not start with `_`, retrieved recursively. Skips hidden directories (those beginning with `.`).
 
-**Fingerprint** — `Scanner::fingerprint(string $scssDir): string` = `md5` over the concatenation of `"relative_path:mtime:size\n"` for **every** `.scss` file under `scss_dir` (including partials). Catching all `.scss` files makes partial changes reliable — no import-graph tracking needed. The result is **one whole-directory md5**: a change to any `.scss` file (partial or not) changes the fingerprint for **every** entry, so the Detector reports all entries as changed and auto mode recompiles them all. Stored in option `beplus_scss_fingerprints` as `array relative_path => fingerprint` — the same whole-directory value under every entry key.
+**Fingerprint** — `Scanner::fingerprint(string $scssDir): string` = `md5` over the concatenation of `"relative_path:mtime:size\n"` for **every** `.scss` file under `scss_dir` (including partials). Catching all `.scss` files makes partial changes reliable — no import-graph tracking needed. The result is **one whole-directory md5**: a change to any `.scss` file (partial or not) changes the fingerprint for **every** entry, so the Detector reports all entries as changed and auto mode recompiles them all. Stored in option `beplus_scss_fingerprints` as `array key => fingerprint` where `key = "<pairId>:<relative_path>"` (the pair id is the index in `pairs`) — the same whole-directory value under every entry key of that pair. Pair `0` also reads legacy unprefixed keys so existing installs keep working.
 
 **Detector** — pure: `Detector::changedEntries(array $entries, array $storedFingerprints, string $scssDir): array` compares the current whole-directory fingerprint against each entry's stored value and returns the subset of `$entries` that differ or are missing. A missing key marks a new/deleted-but-still-present entry as changed; a differing value recompiles that entry.
 
-**Auto-mode glue** (in `Plugin`): registered on `wp_enqueue_scripts`, default priority. Guards before doing anything: `! is_admin()`, `! wp_doing_ajax()`, settings valid, `compile_mode === 'auto'`. Then: for each changed entry → compile → write → update the fingerprint option by storing the **current whole-directory fingerprint** under every entry key (recompiling a partial or not, the stored value for all entries is refreshed to keep the `relative_path => fingerprint` map in sync). Runs once per request (static `$done` flag).
+**Auto-mode glue** (in `Plugin`): registered on `wp_enqueue_scripts`, default priority. Guards before doing anything: `! is_admin()`, `! wp_doing_ajax()`, at least one valid saved pair, `compile_mode === 'auto'`. Then, for **each** saved pair: for each changed entry → compile → write → update the fingerprint option by storing the **current whole-directory fingerprint** under every entry key of that pair. Runs once per request for the whole plugin (static `$done` flag shared across pairs).
 
 **Manual mode**: compiles only via the "Compile now" button (Section 3).
 
@@ -120,15 +128,15 @@ ScssPhpCompiler   // default backend (scssphp library)
 
 ## 6. Enqueue + Delivery
 
-- `Enqueue` is pure: `Enqueue::styles(string $cssDir, string $baseUrl, array $registeredFiles): array` returns `Value\Style` DTOs `{ handle, url, version }`, one per `.css` file in `css_dir` **that is registered as compiled by the plugin**, recursing like the scanner (`.map` files ignored). `$registeredFiles` is the list of relative paths (from `css_dir`) the plugin actually wrote — passing it in keeps `Enqueue` WordPress-agnostic and guarantees pre-existing CSS in `css_dir` (e.g. a theme's own `editor-style.css`) is **never** enqueued.
-- Handle: `beplus-scss-` + relative path slugified (`/` → `-`, `.` stripped). Examples: `beplus-scss-main`, `beplus-scss-modules-card`.
+- `Enqueue` is pure: `Enqueue::styles(string $cssDir, string $baseUrl, array $registeredFiles, int $pairId): array` returns `Value\Style` DTOs `{ handle, url, version }`, one per `.css` file in `css_dir` **that is registered as compiled by the plugin**, recursing like the scanner (`.map` files ignored). `$registeredFiles` is the list of `"<pairId>:<relative_path>"` entries (from `css_dir`) the plugin actually wrote for that pair — passing it in keeps `Enqueue` WordPress-agnostic and guarantees pre-existing CSS in `css_dir` (e.g. a theme's own `editor-style.css`) is **never** enqueued. For pair `0` an unprefixed legacy `relative_path` entry is also accepted.
+- Handle: `beplus-scss-<pairId>-` + relative path slugified (`/` → `-`, `.` stripped). Examples: `beplus-scss-0-main`, `beplus-scss-1-modules-card`. The pair id keeps handles distinct when two pairs contain the same file name.
 - **Cache-bust**: `version = filemtime( css_file )`.
-- Glue: `Plugin` maps each `Style` to `wp_enqueue_style( $style->handle, $style->url, [], $style->version )` — gated on `enqueue === true` — and lets the `beplus_scss/enqueue` filter reshape the list first.
+- Glue: `Plugin` collects `Style[]` from **every** valid pair, applies `beplus_scss/enqueue` once over the merged list, then maps each `Style` to `wp_enqueue_style( $style->handle, $style->url, [], $style->version )` — gated on `enqueue === true`.
 - **URL resolution**: always `home_url( '/' ) . ltrim( substr( abs_css_dir, strlen( ABSPATH ) ), '/' )` because the theme lives under `ABSPATH`. No rewrite endpoint exists.
 
-**Compiled-file registry** — option `beplus_scss_compiled` (`array`, relative paths from `css_dir`, e.g. `main.css`, `modules/card.css`):
-- Maintained by the `Plugin` glue in `compileEntries`: after writing a CSS file, its relative path is added to the registry; stale entries whose file no longer exists are pruned. The map file `.css.map` is not registered (only `.css`).
-- Consumed by `Enqueue::styles()` as `$registeredFiles`. This is the single source of truth for "what did the plugin compile" used by both auto- and manual-mode enqueueing.
+**Compiled-file registry** — option `beplus_scss_compiled` (`array`, entries `"<pairId>:<relative_path>"` from `css_dir`, e.g. `0:main.css`, `1:modules/card.css`):
+- Maintained by the `Plugin` glue in `compileEntries`: after writing a CSS file, its pair-scoped relative path is added to the registry; stale entries whose file no longer exists are pruned. The map file `.css.map` is not registered (only `.css`).
+- Consumed by `Enqueue::styles()` as `$registeredFiles`. This is the single source of truth for "what did the plugin compile" used by both auto- and manual-mode enqueueing. Pair `0` also reads legacy unprefixed entries.
 
 ## 7. Hooks / Filter API (extensibility)
 
@@ -138,15 +146,17 @@ Every filter has a sensible default, applied in the `Plugin` glue (never inside 
 |---|---|
 | `beplus_scss/compiler` | `$compiler = apply_filters( 'beplus_scss/compiler', new ScssPhpCompiler() )` — must return a `CompilerInterface` |
 | `beplus_scss/import_paths` | `$paths = apply_filters( 'beplus_scss/import_paths', [ $scss_dir ] )` — array of absolute directories |
-| `beplus_scss/exclude` | `$exclude = apply_filters( 'beplus_scss/exclude', false, $entry, $relativePath )` — `true` skips the entry |
-| `beplus_scss/write_path` | `$path = apply_filters( 'beplus_scss/write_path', $defaultPath, $entry, $scss_dir, $css_dir )` — override destination |
-| `beplus_scss/enqueue` | `$styles = apply_filters( 'beplus_scss/enqueue', $styles )` — reshape the `Style[]` list |
-| `beplus_scss/error` | `apply_filters( 'beplus_scss/error', $wpError )` — notify developers of a compile failure |
+| `beplus_scss/exclude` | `$exclude = apply_filters( 'beplus_scss/exclude', false, $entry, $relativePath, $pairId )` — `true` skips the entry |
+| `beplus_scss/write_path` | `$path = apply_filters( 'beplus_scss/write_path', $defaultPath, $entry, $scss_dir, $css_dir, $pairId )` — override destination |
+| `beplus_scss/enqueue` | `$styles = apply_filters( 'beplus_scss/enqueue', $styles )` — reshape the merged `Style[]` list (applied once over all pairs) |
+| `beplus_scss/error` | `apply_filters( 'beplus_scss/error', $wpError, $pairId )` — notify developers of a compile failure |
+
+Trailing arguments preserve backward compatibility with existing callbacks.
 
 ## 8. Error Handling
 
 - Compile error at runtime (auto mode): **keep the previous CSS intact** (guaranteed by atomic writes), catch the exception in the glue, store `beplus_scss_last_error`, never break the page.
-- Option `beplus_scss_last_error` = array `{ time: int timestamp, entry: string, message: string }`. Cleared on the next successful compile of that entry (or any successful Compile-now run) and on a successful settings save.
+- Option `beplus_scss_last_error` = array `{ time: int timestamp, entry: string, message: string }`, where `entry` is `"<pairId>:<relative_path>"`. Cleared on the next successful compile of that entry (or any successful Compile-now run) and on a successful settings save.
 - The settings page shows a dismissible admin notice when `beplus_scss_last_error` is set (dismiss clears the option).
 - Path errors: blocked at Save; if `css_dir` is deleted mid-flight → re-detect and show an admin notice.
 
@@ -204,16 +214,16 @@ Domain Path: /languages
 | Settings class | `Beplus\ScssCompiler\Settings\SettingsPage` |
 | Options register | `beplus_scss_settings` (array, keys per Section 3) |
 | Fingerprints option | `beplus_scss_fingerprints` |
-| Compiled registry | `beplus_scss_compiled` (array of relative paths from `css_dir`) |
+| Compiled registry | `beplus_scss_compiled` (array of `"<pairId>:<relative_path>"` from `css_dir`) |
 | Last error option | `beplus_scss_last_error` |
 | Version option | `beplus_scss_version` |
 | uninstall.php deletes | exactly the 5 options above |
 | Menu | Submenu of Settings (`options-general.php`), slug `beplus-scss`, `manage_options` |
 | Nonce (compile-now) | `beplus_scss_compile_nonce` |
 | Admin-post action | `beplus_scss_compile` |
-| Handle prefix | `beplus-scss-` (slugified relative path) |
-| Filters | `beplus_scss/compiler`, `/import_paths`, `/exclude`, `/write_path`, `/enqueue`, `/error` |
-| Defaults | paths empty, `auto`, `source_map=false`, `minify=false`, `enqueue=false` |
+| Handle prefix | `beplus-scss-<pairId>-` (slugified relative path; pair id = index in `pairs`) |
+| Filters | `beplus_scss/compiler`, `/import_paths`, `/exclude`, `/write_path`, `/enqueue`, `/error` (see §7 for signatures) |
+| Defaults | `pairs=[]`, `auto`, `source_map=false`, `minify=false`, `enqueue=false` |
 | Textdomain / domain path | `beplus-scss` / `/languages` |
 | POT | `languages/beplus-scss.pot` |
 | WP min / PHP min | 6.0 / 7.4 |

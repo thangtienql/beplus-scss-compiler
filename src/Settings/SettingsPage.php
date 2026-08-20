@@ -5,7 +5,8 @@ namespace Beplus\ScssCompiler\Settings;
 use Beplus\ScssCompiler\Scanner;
 
 /**
- * @phpstan-type ScssSettings array{scss_dir:string, css_dir:string, compile_mode:'auto'|'manual', source_map:bool, minify:bool, enqueue:bool}
+ * @phpstan-type ScssPair array{scss_dir:string, css_dir:string}
+ * @phpstan-type ScssSettings array{pairs:array<int, ScssPair>, scss_dir:string, css_dir:string, compile_mode:'auto'|'manual', source_map:bool, minify:bool, enqueue:bool}
  * @phpstan-type ScssSettingsInput array<string, mixed>
  */
 final class SettingsPage {
@@ -28,6 +29,7 @@ final class SettingsPage {
 	 */
 	private static function defaults(): array {
 		return [
+			'pairs'        => [],
 			'scss_dir'     => '',
 			'css_dir'      => '',
 			'compile_mode' => 'auto',
@@ -43,15 +45,55 @@ final class SettingsPage {
 	public static function currentSettings(): array {
 		$stored = get_option( self::OPTION_NAME, [] );
 		$stored = is_array( $stored ) ? $stored : [];
+		$pairs  = self::storedPairs( $stored );
 
 		return [
-			'scss_dir'     => isset( $stored['scss_dir'] ) && is_string( $stored['scss_dir'] ) ? $stored['scss_dir'] : '',
-			'css_dir'      => isset( $stored['css_dir'] ) && is_string( $stored['css_dir'] ) ? $stored['css_dir'] : '',
+			'pairs'        => $pairs,
+			'scss_dir'     => $pairs[0]['scss_dir'] ?? '',
+			'css_dir'      => $pairs[0]['css_dir'] ?? '',
 			'compile_mode' => 'manual' === ( $stored['compile_mode'] ?? '' ) ? 'manual' : 'auto',
 			'source_map'   => (bool) ( $stored['source_map'] ?? false ),
 			'minify'       => (bool) ( $stored['minify'] ?? false ),
 			'enqueue'      => (bool) ( $stored['enqueue'] ?? false ),
 		];
+	}
+
+	/**
+	 * Normalize stored pairs, migrating legacy scss_dir/css_dir keys into the
+	 * first pair when no pairs key exists, and dropping fully-blank rows.
+	 *
+	 * @param array<mixed> $stored
+	 * @return array<int, ScssPair>
+	 */
+	private static function storedPairs( array $stored ): array {
+		$pairs = [];
+		if ( isset( $stored['pairs'] ) && is_array( $stored['pairs'] ) ) {
+			foreach ( $stored['pairs'] as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$scss = isset( $row['scss_dir'] ) && is_string( $row['scss_dir'] ) ? trim( $row['scss_dir'], '/' ) : '';
+				$css  = isset( $row['css_dir'] ) && is_string( $row['css_dir'] ) ? trim( $row['css_dir'], '/' ) : '';
+				if ( '' === $scss && '' === $css ) {
+					continue;
+				}
+				$pairs[] = [
+					'scss_dir' => $scss,
+					'css_dir'  => $css,
+				];
+			}
+		} elseif ( isset( $stored['scss_dir'] ) && isset( $stored['css_dir'] ) ) {
+			$scss = is_string( $stored['scss_dir'] ) ? trim( $stored['scss_dir'], '/' ) : '';
+			$css  = is_string( $stored['css_dir'] ) ? trim( $stored['css_dir'], '/' ) : '';
+			if ( '' !== $scss || '' !== $css ) {
+				$pairs[] = [
+					'scss_dir' => $scss,
+					'css_dir'  => $css,
+				];
+			}
+		}
+
+		return $pairs;
 	}
 
 	/**
@@ -189,6 +231,16 @@ final class SettingsPage {
 			.beplus-field input[type="text"]{ width:100%; max-width:100%; margin:0; border:1.5px solid var(--bp-border); border-radius:10px; padding:9px 12px; font-size:13px; color:var(--bp-ink); background:#fff; box-shadow:none; }
 			.beplus-field input[type="text"]:focus{ border-color:var(--bp-purple); box-shadow:0 0 0 3px rgba(168,85,247,.16); outline:none; }
 			.beplus-hint{ margin:6px 0 0; font-size:12px; color:var(--bp-muted); }
+			.beplus-pair-row{ background:#f8fafc; border:1px solid var(--bp-border); border-radius:12px; padding:16px 18px; margin-bottom:16px; }
+			.beplus-pair-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+			.beplus-pair-label{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--bp-muted); font-weight:600; }
+			.beplus-pair-inputs{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+			.beplus-pair-inputs .beplus-field{ margin-bottom:0; }
+			@media (max-width:600px){ .beplus-pair-inputs{ grid-template-columns:1fr; } }
+			.beplus-btn-remove{ background:#fff; border:1px solid #fecaca; color:#dc2626; border-radius:8px; padding:5px 14px; font-size:12px; font-weight:600; cursor:pointer; transition:background .15s; }
+			.beplus-btn-remove:hover{ background:#fef2f2; }
+			.beplus-btn-add{ background:linear-gradient(135deg,var(--bp-indigo),var(--bp-purple)); color:#fff; border:0; border-radius:10px; padding:8px 18px; font-weight:600; cursor:pointer; margin-bottom:20px; }
+			.beplus-btn-add:hover{ filter:brightness(1.08); }
 			.beplus-segment{ margin:0 0 20px; padding:0; border:0; }
 			.beplus-segment .beplus-field-label{ margin-bottom:6px; }
 			.beplus-segment-inner{ display:flex; gap:4px; padding:4px; background:#f1f5f9; border-radius:10px; }
@@ -267,7 +319,19 @@ final class SettingsPage {
 					<span class="beplus-stat-icon dashicons dashicons-portfolio" aria-hidden="true"></span>
 					<div>
 						<span class="beplus-stat-label"><?php echo esc_html( __( 'Output', 'beplus-scss' ) ); ?></span>
-						<span class="beplus-stat-value"><?php echo esc_html( '' !== $settings['css_dir'] ? $settings['css_dir'] : __( 'Not set', 'beplus-scss' ) ); ?></span>
+						<span class="beplus-stat-value">
+						<?php
+						$outputCount = count( $settings['pairs'] );
+						if ( 0 === $outputCount ) {
+							echo esc_html( __( 'Not set', 'beplus-scss' ) );
+						} elseif ( 1 === $outputCount ) {
+							echo esc_html( $settings['pairs'][0]['css_dir'] );
+						} else {
+							/* translators: %d: Number of SCSS/CSS pairs. */
+							echo esc_html( sprintf( __( '%d outputs', 'beplus-scss' ), $outputCount ) );
+						}
+						?>
+						</span>
 					</div>
 				</div>
 			</div>
@@ -305,16 +369,52 @@ final class SettingsPage {
 		/** @var ScssSettings $values */
 		$values = wp_parse_args( $settings, self::defaults() );
 		?>
-		<div class="beplus-field">
-			<label class="beplus-field-label" for="beplus_scss_scss_dir"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss' ) ); ?></label>
-			<input type="text" id="beplus_scss_scss_dir" name="beplus_scss_settings[scss_dir]" value="<?php echo esc_attr( $values['scss_dir'] ); ?>" placeholder="<?php echo esc_attr( 'assets/scss' ); ?>" />
-			<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss' ) ); ?></p>
+		<div class="beplus-pairs" id="beplus-pairs">
+			<?php
+			$pairs = $values['pairs'];
+			if ( [] === $pairs ) {
+				$pairs[] = [
+					'scss_dir' => '',
+					'css_dir'  => '',
+				];
+			}
+			foreach ( $pairs as $pairIndex => $pair ) {
+				$this->renderPairRow( $pairIndex, $pair['scss_dir'], $pair['css_dir'] );
+			}
+			?>
+			<button type="button" class="beplus-btn-add" id="beplus-add-pair"><?php echo esc_html( __( 'Add pair', 'beplus-scss' ) ); ?></button>
 		</div>
-		<div class="beplus-field">
-			<label class="beplus-field-label" for="beplus_scss_css_dir"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss' ) ); ?></label>
-			<input type="text" id="beplus_scss_css_dir" name="beplus_scss_settings[css_dir]" value="<?php echo esc_attr( $values['css_dir'] ); ?>" placeholder="<?php echo esc_attr( 'assets/css' ); ?>" />
-			<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss' ) ); ?></p>
-		</div>
+		<script type="text/template" id="beplus-pair-template"><?php $this->renderPairRowTemplate(); ?></script>
+		<script>
+		( function () {
+			var container = document.getElementById( 'beplus-pairs' );
+			var template  = document.getElementById( 'beplus-pair-template' );
+			var addBtn    = document.getElementById( 'beplus-add-pair' );
+			var labelPrefix = <?php echo wp_json_encode( __( 'Pair', 'beplus-scss' ) . ' ' ); ?>;
+			if ( ! container || ! template || ! addBtn ) {
+				return;
+			}
+			addBtn.addEventListener( 'click', function () {
+				var index = container.querySelectorAll( '.beplus-pair-row' ).length;
+				var row   = template.textContent.trim().replace( /__INDEX__/g, String( index ) );
+				addBtn.insertAdjacentHTML( 'beforebegin', row );
+				var label = addBtn.previousElementSibling.querySelector( '[data-pair-label]' );
+				if ( label ) {
+					label.textContent = labelPrefix + String( index + 1 );
+				}
+			} );
+			container.addEventListener( 'click', function ( event ) {
+				var btn = event.target.closest( '[data-remove]' );
+				if ( ! btn ) {
+					return;
+				}
+				var rows = container.querySelectorAll( '.beplus-pair-row' );
+				if ( rows.length > 1 ) {
+					btn.closest( '.beplus-pair-row' ).remove();
+				}
+			} );
+		} )();
+		</script>
 		<fieldset class="beplus-segment">
 			<legend class="beplus-field-label"><?php echo esc_html( __( 'Compile mode', 'beplus-scss' ) ); ?></legend>
 			<div class="beplus-segment-inner">
@@ -349,6 +449,57 @@ final class SettingsPage {
 				<small><?php echo esc_html( __( 'Load compiled styles on the frontend', 'beplus-scss' ) ); ?></small>
 			</span>
 		</label>
+		<?php
+	}
+
+	/**
+	 * @param string $scss
+	 * @param string $css
+	 */
+	private function renderPairRow( int $index, string $scss, string $css ): void {
+		?>
+		<div class="beplus-pair-row">
+			<div class="beplus-pair-head">
+				<?php /* translators: %d: Pair number. */ ?>
+				<span class="beplus-pair-label"><?php echo esc_html( sprintf( __( 'Pair %d', 'beplus-scss' ), $index + 1 ) ); ?></span>
+				<button type="button" class="beplus-btn-remove" data-remove><?php echo esc_html( __( 'Remove', 'beplus-scss' ) ); ?></button>
+			</div>
+			<div class="beplus-pair-inputs">
+				<div class="beplus-field">
+					<label class="beplus-field-label" for="beplus_scss_scss_dir_<?php echo esc_attr( (string) $index ); ?>"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss' ) ); ?></label>
+					<input type="text" id="beplus_scss_scss_dir_<?php echo esc_attr( (string) $index ); ?>" name="beplus_scss_settings[pairs][<?php echo esc_attr( (string) $index ); ?>][scss_dir]" value="<?php echo esc_attr( $scss ); ?>" placeholder="<?php echo esc_attr( 'assets/scss' ); ?>" />
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss' ) ); ?></p>
+				</div>
+				<div class="beplus-field">
+					<label class="beplus-field-label" for="beplus_scss_css_dir_<?php echo esc_attr( (string) $index ); ?>"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss' ) ); ?></label>
+					<input type="text" id="beplus_scss_css_dir_<?php echo esc_attr( (string) $index ); ?>" name="beplus_scss_settings[pairs][<?php echo esc_attr( (string) $index ); ?>][css_dir]" value="<?php echo esc_attr( $css ); ?>" placeholder="<?php echo esc_attr( 'assets/css' ); ?>" />
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss' ) ); ?></p>
+				</div>
+			</div>
+		</div>
+		<?php
+	}
+
+	private function renderPairRowTemplate(): void {
+		?>
+		<div class="beplus-pair-row">
+			<div class="beplus-pair-head">
+				<span class="beplus-pair-label" data-pair-label></span>
+				<button type="button" class="beplus-btn-remove" data-remove><?php echo esc_html( __( 'Remove', 'beplus-scss' ) ); ?></button>
+			</div>
+			<div class="beplus-pair-inputs">
+				<div class="beplus-field">
+					<label class="beplus-field-label"><?php echo esc_html( __( 'SCSS source directory', 'beplus-scss' ) ); ?></label>
+					<input type="text" name="beplus_scss_settings[pairs][__INDEX__][scss_dir]" value="" placeholder="<?php echo esc_attr( 'assets/scss' ); ?>" />
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must contain at least one non-partial .scss file.', 'beplus-scss' ) ); ?></p>
+				</div>
+				<div class="beplus-field">
+					<label class="beplus-field-label"><?php echo esc_html( __( 'CSS destination directory', 'beplus-scss' ) ); ?></label>
+					<input type="text" name="beplus_scss_settings[pairs][__INDEX__][css_dir]" value="" placeholder="<?php echo esc_attr( 'assets/css' ); ?>" />
+					<p class="beplus-hint"><?php echo esc_html( __( 'Relative to your active theme. Must be writable by the server.', 'beplus-scss' ) ); ?></p>
+				</div>
+			</div>
+		</div>
 		<?php
 	}
 
@@ -430,44 +581,114 @@ final class SettingsPage {
 	}
 
 	/**
+	 * Validate and normalize a list of pair rows. Pure — filesystem checks are
+	 * injected and no WP functions are called, so the decision logic is
+	 * unit-testable without wp-env. Error messages are mapped to translated
+	 * strings by the caller (sanitize()).
+	 *
+	 * @param array<mixed> $inputPairs
+	 * @param array<int, ScssPair> $previousPairs previous stored pairs (per-row fallback on error)
+	 * @param callable(string):bool $scssValidator
+	 * @param callable(string):bool $cssValidator
+	 * @return array{pairs:array<int, ScssPair>, errors:array<int, array{index:int, code:string}>}
+	 */
+	public static function sanitizePairs( array $inputPairs, array $previousPairs, callable $scssValidator, callable $cssValidator ): array {
+		$pairs  = [];
+		$errors = [];
+
+		foreach ( $inputPairs as $index => $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$scssRaw = isset( $row['scss_dir'] ) && is_string( $row['scss_dir'] ) ? $row['scss_dir'] : '';
+			$cssRaw  = isset( $row['css_dir'] ) && is_string( $row['css_dir'] ) ? $row['css_dir'] : '';
+			$scss    = self::trimSlashes( trim( $scssRaw ) );
+			$css     = self::trimSlashes( trim( $cssRaw ) );
+
+			if ( '' === $scss && '' === $css ) {
+				continue;
+			}
+			if ( '' === $scss || '' === $css ) {
+				$errors[] = [
+					'index' => $index,
+					'code'  => '' === $scss ? 'bad_scss_dir_' . $index : 'bad_css_dir_' . $index,
+				];
+				if ( isset( $previousPairs[ $index ] ) ) {
+					$pairs[] = $previousPairs[ $index ];
+				}
+				continue;
+			}
+			$scssErr = self::hasDotDotSegment( $scss ) || ! $scssValidator( $scss );
+			$cssErr  = self::hasDotDotSegment( $css ) || ! $cssValidator( $css );
+			if ( $scssErr ) {
+				$errors[] = [
+					'index' => $index,
+					'code'  => 'bad_scss_dir_' . $index,
+				];
+			}
+			if ( $cssErr ) {
+				$errors[] = [
+					'index' => $index,
+					'code'  => 'bad_css_dir_' . $index,
+				];
+			}
+			if ( $scssErr || $cssErr ) {
+				if ( isset( $previousPairs[ $index ] ) ) {
+					$pairs[] = $previousPairs[ $index ];
+				}
+				continue;
+			}
+			$pairs[] = [
+				'scss_dir' => $scss,
+				'css_dir'  => $css,
+			];
+		}
+
+		return [
+			'pairs'  => $pairs,
+			'errors' => $errors,
+		];
+	}
+
+	/**
 	 * @param ScssSettingsInput $input
 	 * @return ScssSettings
 	 */
 	public function sanitize( array $input ): array {
 		/** @var ScssSettings $output */
 		$output = wp_parse_args( self::currentSettings(), self::defaults() );
+		/** @var mixed $storedOption */
+		$storedOption = get_option( self::OPTION_NAME, [] );
+		$prev         = self::storedPairs( is_array( $storedOption ) ? $storedOption : [] );
 
-		if ( isset( $input['scss_dir'] ) && is_string( $input['scss_dir'] ) ) {
-			$rel = $this->normalizePath( $input['scss_dir'] );
-			if ( '' === $rel ) {
-				$output['scss_dir'] = '';
-			} elseif ( $this->hasDotDotSegment( $rel ) ) {
-				add_settings_error( self::OPTION_NAME, 'bad_scss_dir', __( 'SCSS directory must not contain "..".', 'beplus-scss' ) );
-			} else {
-				$validated = $this->validateScssDir( self::absPath( $rel ) );
-				if ( true === $validated ) {
-					$output['scss_dir'] = $rel;
-				} else {
-					add_settings_error( self::OPTION_NAME, 'bad_scss_dir', $validated );
+		if ( isset( $input['pairs'] ) && is_array( $input['pairs'] ) ) {
+			$result          = self::sanitizePairs(
+				$input['pairs'],
+				$prev,
+				function ( string $rel ): bool {
+					$validated = $this->validateScssDir( self::absPath( $rel ) );
+
+					return true === $validated;
+				},
+				function ( string $rel ): bool {
+					$validated = $this->validateCssDir( self::absPath( $rel ) );
+
+					return true === $validated;
 				}
+			);
+			$output['pairs'] = $result['pairs'];
+			foreach ( $result['errors'] as $error ) {
+				$message = strpos( $error['code'], 'bad_scss_dir' ) === 0
+					? __( 'SCSS directory is not valid.', 'beplus-scss' )
+					: __( 'CSS directory is not valid.', 'beplus-scss' );
+				add_settings_error( self::OPTION_NAME, $error['code'], $message );
 			}
+		} else {
+			$output['pairs'] = $prev;
 		}
 
-		if ( isset( $input['css_dir'] ) && is_string( $input['css_dir'] ) ) {
-			$rel = $this->normalizePath( $input['css_dir'] );
-			if ( '' === $rel ) {
-				$output['css_dir'] = '';
-			} elseif ( $this->hasDotDotSegment( $rel ) ) {
-				add_settings_error( self::OPTION_NAME, 'bad_css_dir', __( 'CSS directory must not contain "..".', 'beplus-scss' ) );
-			} else {
-				$validated = $this->validateCssDir( self::absPath( $rel ) );
-				if ( true === $validated ) {
-					$output['css_dir'] = $rel;
-				} else {
-					add_settings_error( self::OPTION_NAME, 'bad_css_dir', $validated );
-				}
-			}
-		}
+		$output['scss_dir'] = $output['pairs'][0]['scss_dir'] ?? '';
+		$output['css_dir']  = $output['pairs'][0]['css_dir'] ?? '';
 
 		if ( isset( $input['compile_mode'] ) && in_array( $input['compile_mode'], [ 'auto', 'manual' ], true ) ) {
 			$output['compile_mode'] = $input['compile_mode'];
@@ -480,18 +701,11 @@ final class SettingsPage {
 		return $output;
 	}
 
-	private function normalizePath( string $path ): string {
-		$path = trim( $path );
-		if ( '' === $path ) {
-			return '';
-		}
-		$path = wp_normalize_path( $path );
-		$path = trim( $path, '/' );
-
-		return $path;
+	private static function trimSlashes( string $path ): string {
+		return trim( $path, '/' );
 	}
 
-	private function hasDotDotSegment( string $path ): bool {
+	private static function hasDotDotSegment( string $path ): bool {
 		foreach ( explode( '/', $path ) as $segment ) {
 			if ( '..' === $segment ) {
 				return true;
