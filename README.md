@@ -1,5 +1,7 @@
 # Beplus SCSS Compiler
 
+[![CI](https://github.com/thangtienql/beplus-scss-compiler/actions/workflows/ci.yml/badge.svg)](https://github.com/thangtienql/beplus-scss-compiler/actions/workflows/ci.yml)
+
 A public-ready WordPress plugin that compiles SCSS to CSS. Developers declare a
 SCSS source directory and a CSS destination directory in the admin; the plugin
 scans SCSS (mirror structure), recompiles when files change (`auto` mode) or on

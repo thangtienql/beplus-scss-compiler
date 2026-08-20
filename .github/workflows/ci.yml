@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  phpcs:
+    name: PHPCS (WordPress Coding Standards)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer, cs2pr
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-phpcs-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-phpcs-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run PHPCS (cs2pr annotations on PRs)
+        run: vendor/bin/phpcs --report=checkstyle -q | cs2pr
+
+  phpstan:
+    name: PHPStan (level max)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-phpstan-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-phpstan-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run PHPStan
+        run: composer analyse
+
+  phpunit:
+    name: PHPUnit (unit tests)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.2']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-phpunit-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-phpunit-${{ matrix.php }}-
+
+      - name: Install dependencies (uses committed lock)
+        run: composer install --prefer-dist --no-progress --no-interaction
+        if: matrix.php != '7.4'
+
+      - name: Update dependencies (PHP 7.4 — committed lock pins PHPUnit 11 for PHP >= 8.2)
+        run: composer update --prefer-dist --no-progress --no-interaction
+        if: matrix.php == '7.4'
+
+      - name: Run PHPUnit
+        run: composer test

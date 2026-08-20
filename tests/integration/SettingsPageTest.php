@@ -204,6 +204,221 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		}
 	}
 
+	public function test_render_page_renders_validation_errors_as_toasts(): void {
+		wp_set_current_user( 1 );
+		$_GET['settings-updated'] = 'true';
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => SettingsPage::OPTION_NAME,
+					'code'    => 'bad_scss_dir',
+					'message' => 'SCSS directory does not exist.',
+					'type'    => 'error',
+				],
+			]
+		);
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+		unset( $_GET['settings-updated'] );
+
+		self::assertStringContainsString( 'beplus-toast beplus-toast-error', $html );
+		self::assertStringContainsString( 'SCSS directory does not exist.', $html );
+		self::assertStringNotContainsString( 'notice-error', $html );
+	}
+
+	public function test_render_page_clears_settings_errors_transient(): void {
+		wp_set_current_user( 1 );
+		$_GET['settings-updated'] = 'true';
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => SettingsPage::OPTION_NAME,
+					'code'    => 'bad_css_dir',
+					'message' => 'CSS directory is not writable.',
+					'type'    => 'error',
+				],
+			]
+		);
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		ob_end_clean();
+		unset( $_GET['settings-updated'] );
+
+		self::assertFalse( get_transient( 'settings_errors' ) );
+	}
+
+	public function test_render_page_shows_settings_saved_toast(): void {
+		wp_set_current_user( 1 );
+		$_GET['settings-updated'] = 'true';
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => 'general',
+					'code'    => 'settings_updated',
+					'message' => 'Settings saved.',
+					'type'    => 'success',
+				],
+			]
+		);
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+		unset( $_GET['settings-updated'] );
+
+		self::assertStringContainsString( 'beplus-toast-success', $html );
+		self::assertStringContainsString( 'Settings saved.', $html );
+	}
+
+	public function test_compile_toast_suppressed_when_validation_error_present(): void {
+		wp_set_current_user( 1 );
+		$_GET['msg']              = 'compiled';
+		$_GET['settings-updated'] = 'true';
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => SettingsPage::OPTION_NAME,
+					'code'    => 'bad_scss_dir',
+					'message' => 'SCSS directory does not exist.',
+					'type'    => 'error',
+				],
+			]
+		);
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+		unset( $_GET['msg'], $_GET['settings-updated'] );
+
+		self::assertStringContainsString( 'beplus-toast beplus-toast-error', $html );
+		self::assertStringContainsString( 'SCSS directory does not exist.', $html );
+		self::assertStringNotContainsString( 'SCSS compiled successfully.', $html );
+	}
+
+	public function test_render_page_emits_msg_strip_script(): void {
+		wp_set_current_user( 1 );
+
+		$page = new SettingsPage();
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertStringContainsString( 'searchParams.delete', $html );
+		self::assertStringContainsString( 'history.replaceState', $html );
+	}
+
+	public function test_suppress_core_notices_only_on_this_screen(): void {
+		add_action( 'admin_notices', 'settings_errors' );
+		$page      = new SettingsPage();
+		$other     = new \WP_Screen();
+		$other->id = 'dashboard';
+		$page->suppressCoreNotices( $other );
+		self::assertGreaterThan( 0, has_action( 'admin_notices', 'settings_errors' ) );
+
+		$mine     = new \WP_Screen();
+		$mine->id = 'settings_page_' . SettingsPage::MENU_SLUG;
+		$page->suppressCoreNotices( $mine );
+		self::assertFalse( has_action( 'admin_notices', 'settings_errors' ) );
+	}
+
+	public function test_capture_settings_errors_clears_core_state(): void {
+		set_current_screen( 'settings_page_' . SettingsPage::MENU_SLUG );
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => SettingsPage::OPTION_NAME,
+					'code'    => 'bad_scss_dir',
+					'message' => 'SCSS directory does not exist.',
+					'type'    => 'error',
+				],
+			]
+		);
+		$GLOBALS['wp_settings_errors'] = [
+			[
+				'setting' => SettingsPage::OPTION_NAME,
+				'code'    => 'bad_css_dir',
+				'message' => 'CSS directory is not writable.',
+				'type'    => 'error',
+			],
+		];
+
+		$page = new SettingsPage();
+		$page->captureSettingsErrors();
+
+		self::assertFalse( get_transient( 'settings_errors' ) );
+		self::assertSame( [], $GLOBALS['wp_settings_errors'] );
+		$captured = $page->capturedErrors();
+		self::assertSame( 'SCSS directory does not exist.', $captured[0]['message'] );
+	}
+
+	public function test_capture_does_not_run_on_other_screens(): void {
+		set_current_screen( 'dashboard' );
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => 'x',
+					'code'    => 'c',
+					'message' => 'm',
+					'type'    => 'error',
+				],
+			]
+		);
+		$GLOBALS['wp_settings_errors'] = [
+			[
+				'setting' => 'x',
+				'code'    => 'c',
+				'message' => 'm',
+				'type'    => 'error',
+			],
+		];
+
+		$page = new SettingsPage();
+		$page->captureSettingsErrors();
+
+		self::assertNotFalse( get_transient( 'settings_errors' ) );
+		self::assertNotEmpty( $GLOBALS['wp_settings_errors'] );
+	}
+
+	public function test_render_page_uses_captured_errors(): void {
+		wp_set_current_user( 1 );
+		set_current_screen( 'settings_page_' . SettingsPage::MENU_SLUG );
+		set_transient(
+			'settings_errors',
+			[
+				[
+					'setting' => SettingsPage::OPTION_NAME,
+					'code'    => 'bad_scss_dir',
+					'message' => 'SCSS directory does not exist.',
+					'type'    => 'error',
+				],
+			]
+		);
+
+		$page = new SettingsPage();
+		$page->captureSettingsErrors();
+
+		ob_start();
+		$page->renderPage();
+		$html = ob_get_clean();
+
+		self::assertStringContainsString( 'beplus-toast beplus-toast-error', $html );
+		self::assertStringContainsString( 'SCSS directory does not exist.', $html );
+		self::assertStringNotContainsString( 'notice-error', $html );
+	}
+
 	private static function rrmdir( string $dir ): void {
 		if ( ! is_dir( $dir ) ) {
 			return;

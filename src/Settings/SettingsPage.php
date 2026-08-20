@@ -16,6 +16,14 @@ final class SettingsPage {
 	const NONCE_FIELD    = 'beplus_scss_compile_nonce';
 
 	/**
+	 * Errors captured from the settings_errors transient before the core
+	 * options-head.php include renders them inline on this screen.
+	 *
+	 * @var array<array-key, array<string, mixed>>|null
+	 */
+	private static $pendingErrors = null;
+
+	/**
 	 * @return ScssSettings
 	 */
 	private static function defaults(): array {
@@ -56,6 +64,48 @@ final class SettingsPage {
 	public function register(): void {
 		add_action( 'admin_menu', [ $this, 'registerMenu' ] );
 		add_action( 'admin_init', [ $this, 'registerSettings' ] );
+		add_action( 'current_screen', [ $this, 'suppressCoreNotices' ] );
+		add_action( 'admin_notices', [ $this, 'captureSettingsErrors' ], PHP_INT_MAX );
+	}
+
+	/**
+	 * Keep core's settings_errors() from printing its default markup on this
+	 * screen; the plugin renders validation errors itself inside the layout.
+	 *
+	 * @param \WP_Screen|null $screen
+	 */
+	public function suppressCoreNotices( $screen ): void {
+		if ( $screen instanceof \WP_Screen && 'settings_page_' . self::MENU_SLUG === $screen->id ) {
+			remove_action( 'admin_notices', 'settings_errors' );
+		}
+	}
+
+	/**
+	 * Neutralize the core settings_errors() inline renderer. WordPress runs
+	 * options-head.php (which calls settings_errors() directly) after the
+	 * admin_notices hook on every options-general.php child page, so removing
+	 * the admin_notices callback is not enough. This captures the transient
+	 * errors into memory and empties the global before options-head.php runs.
+	 */
+	public function captureSettingsErrors(): void {
+		$screen = get_current_screen();
+		if ( ! $screen instanceof \WP_Screen || 'settings_page_' . self::MENU_SLUG !== $screen->id ) {
+			return;
+		}
+		$transient = get_transient( 'settings_errors' );
+		/** @var array<array-key, array<string, mixed>> $pending */
+		$pending             = is_array( $transient ) ? $transient : [];
+		self::$pendingErrors = $pending;
+		delete_transient( 'settings_errors' );
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Deliberately neutralizes the core renderer; the errors are kept in self::$pendingErrors.
+		$GLOBALS['wp_settings_errors'] = [];
+	}
+
+	/**
+	 * @return array<array-key, array<string, mixed>>
+	 */
+	public function capturedErrors(): array {
+		return self::$pendingErrors ?? [];
 	}
 
 	public function registerMenu(): void {
@@ -85,11 +135,20 @@ final class SettingsPage {
 			return;
 		}
 		/** @var string $rawMsg */
-		$rawMsg   = isset( $_GET['msg'] ) && is_scalar( $_GET['msg'] ) ? (string) $_GET['msg'] : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only flag from the wp_safe_redirect() query args; no state change happens here.
-		$msg      = sanitize_key( $rawMsg );
-		$version  = get_option( 'beplus_scss_version', '' );
-		$version  = is_string( $version ) ? $version : '';
-		$settings = self::currentSettings();
+		$rawMsg              = isset( $_GET['msg'] ) && is_scalar( $_GET['msg'] ) ? (string) $_GET['msg'] : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only flag from the wp_safe_redirect() query args; no state change happens here.
+		$msg                 = sanitize_key( $rawMsg );
+		$version             = get_option( 'beplus_scss_version', '' );
+		$version             = is_string( $version ) ? $version : '';
+		$settings            = self::currentSettings();
+		$errors              = self::$pendingErrors ?? get_settings_errors();
+		self::$pendingErrors = null;
+		$toasts              = self::toastList(
+			$errors,
+			$msg,
+			__( 'SCSS compiled successfully.', 'beplus-scss' ),
+			__( 'Compilation failed. Check your SCSS sources and try again.', 'beplus-scss' ),
+			__( 'Settings saved.', 'beplus-scss' )
+		);
 		?>
 		<div class="wrap beplus-wrap">
 			<style>
@@ -172,17 +231,22 @@ final class SettingsPage {
 				</div>
 			</div>
 
-			<?php if ( 'compiled' === $msg ) : ?>
-				<div class="beplus-toast beplus-toast-success" role="status">
-					<span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>
-					<span><?php echo esc_html( __( 'SCSS compiled successfully.', 'beplus-scss' ) ); ?></span>
+			<?php foreach ( $toasts as $toast ) : ?>
+				<div class="beplus-toast beplus-toast-<?php echo esc_attr( $toast['type'] ); ?>" role="<?php echo 'error' === $toast['type'] ? 'alert' : 'status'; ?>">
+					<span class="dashicons dashicons-<?php echo 'error' === $toast['type'] ? 'warning' : 'yes-alt'; ?>" aria-hidden="true"></span>
+					<span><?php echo esc_html( $toast['message'] ); ?></span>
 				</div>
-			<?php elseif ( 'error' === $msg ) : ?>
-				<div class="beplus-toast beplus-toast-error" role="alert">
-					<span class="dashicons dashicons-warning" aria-hidden="true"></span>
-					<span><?php echo esc_html( __( 'Compilation failed. Check your SCSS sources and try again.', 'beplus-scss' ) ); ?></span>
-				</div>
-			<?php endif; ?>
+			<?php endforeach; ?>
+
+			<script>
+			( function () {
+				var url = new URL( window.location.href );
+				if ( url.searchParams.has( 'msg' ) ) {
+					url.searchParams.delete( 'msg' );
+					window.history.replaceState( {}, '', url.toString() );
+				}
+			} )();
+			</script>
 
 			<div class="beplus-stats">
 				<div class="beplus-stat">
@@ -298,6 +362,71 @@ final class SettingsPage {
 			<?php submit_button( __( 'Compile SCSS now', 'beplus-scss' ), 'secondary beplus-btn-compile', 'compile-now', false ); ?>
 		</form>
 		<?php
+	}
+
+	/**
+	 * Resolve which toasts to render. Pure (no WP calls) so the priority
+	 * rules are unit-testable: validation errors win, then "Settings saved.",
+	 * then the compile message.
+	 *
+	 * @param array<array-key, array<string, mixed>> $errors
+	 * @param string $msg
+	 * @param string $compiledMsg
+	 * @param string $failedMsg
+	 * @param string $savedMsg
+	 * @return array<int, array{type:string, message:string}>
+	 */
+	public static function toastList( array $errors, string $msg, string $compiledMsg, string $failedMsg, string $savedMsg ): array {
+		$toasts  = [];
+		$hasSave = false;
+
+		foreach ( $errors as $error ) {
+			$message = isset( $error['message'] ) && is_string( $error['message'] ) ? $error['message'] : '';
+			$type    = isset( $error['type'] ) && 'success' === $error['type'] ? 'success' : 'error';
+			if ( 'settings_updated' === ( $error['code'] ?? '' ) ) {
+				$hasSave = true;
+				continue;
+			}
+			if ( '' === $message ) {
+				continue;
+			}
+			$toasts[] = [
+				'type'    => $type,
+				'message' => $message,
+			];
+		}
+
+		if ( [] !== $toasts ) {
+			return $toasts;
+		}
+
+		if ( $hasSave ) {
+			return [
+				[
+					'type'    => 'success',
+					'message' => $savedMsg,
+				],
+			];
+		}
+
+		if ( 'compiled' === $msg ) {
+			return [
+				[
+					'type'    => 'success',
+					'message' => $compiledMsg,
+				],
+			];
+		}
+		if ( 'error' === $msg ) {
+			return [
+				[
+					'type'    => 'error',
+					'message' => $failedMsg,
+				],
+			];
+		}
+
+		return [];
 	}
 
 	/**

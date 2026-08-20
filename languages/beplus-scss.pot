@@ -74,6 +74,9 @@ msgstr ""
 msgid "SCSS source directory"
 msgstr ""
 
+msgid "Settings saved."
+msgstr ""
+
 msgid "Settings"
 msgstr ""
 

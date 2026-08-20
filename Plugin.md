@@ -74,14 +74,16 @@ Single option, an array under key `beplus_scss_settings`:
 - Resolve `abs = get_stylesheet_directory() . '/' . $relative` and validate:
   - `scss_dir`: `is_dir()` → `is_readable()` → contains ≥ 1 `.scss` file that is not a `_*.scss` partial.
   - `css_dir`: `is_dir()` → `is_writable()`.
-- On failure → `add_settings_error`, red error in admin, **previous value kept** for the invalid field.
+- On failure → `add_settings_error`, **previous value kept** for the invalid field.
+- Validation/save errors are rendered by the plugin itself as `beplus-toast beplus-toast-error` boxes **inside** the settings page layout (after the hero, before the status bar). The core `settings_errors()` renderer — which WordPress runs inline via `wp-admin/options-head.php` on every `options-general.php` child — is neutralized on this screen (`settings_page_beplus-scss`): on `admin_notices` (max priority) the plugin captures the `settings_errors` transient into memory, deletes it, and empties the global `$wp_settings_errors`, so the inline `settings_errors()` prints nothing and the default markup never breaks the custom layout. The captured errors are what `renderPage()` renders (falling back to `get_settings_errors()` when nothing was captured). A successful save with no errors shows a green `Settings saved.` toast.
 - Store the **relative** paths (theme-scoped) in the option.
 
 **URL for the frontend** (derived, not stored): because the theme always lives under `ABSPATH`, the URL is always `home_url( '/' ) . ltrim( substr( abs_css_dir, strlen( ABSPATH ) ), '/' )`. Files are served directly by the web server; there is no rewrite endpoint.
 
 **"Compile now" button** (works in both modes; this is how `manual` recompiles):
 - Submit to `admin-post.php?action=beplus_scss_compile` (GET), nonce field `beplus_scss_compile_nonce`, capability `manage_options`, nonce check via `check_admin_referer`.
-- Runs the same compile pipeline as the Detector but over **all** entries regardless of fingerprint, then `wp_safe_redirect` back with `msg=compiled|error` (read by the settings page to show a notice).
+- Runs the same compile pipeline as the Detector but over **all** entries regardless of fingerprint, then `wp_safe_redirect` back with `msg=compiled|error` (read by the settings page to show a toast).
+- The `msg` query arg is stripped from the URL client-side (`history.replaceState`) after the toast renders, so a later Save does not re-show a stale compile toast. Compile toasts are only shown when no validation/save notice is pending — errors always win.
 
 ## 4. Compiler Layer
 
