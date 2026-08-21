@@ -1,19 +1,24 @@
 <?php
 
-namespace Beplus\ScssCompiler\Tests\Unit\Compiler;
+namespace Beplus\ScssCompiler\Tests\Integration;
 
 use Beplus\ScssCompiler\Compiler\ScssPhpCompiler;
 use Beplus\ScssCompiler\Value\CompileConfig;
-use PHPUnit\Framework\TestCase;
 use ScssPhp\ScssPhp\Exception\ParserException;
 
-final class ScssPhpCompilerTest extends TestCase {
+/**
+ * Requires the wp-env PHPUnit environment (composer test:integration).
+ *
+ * ScssPhpCompiler::compile() reads the entry file through the Filesystem
+ * helper (WP_Filesystem), so compiling real fixtures needs WordPress.
+ */
+final class ScssPhpCompilerIntegrationTest extends \WP_UnitTestCase {
 
 	private string $scssDir;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->scssDir = dirname( __DIR__, 2 ) . '/fixtures/scss';
+		$this->scssDir = dirname( __DIR__ ) . '/fixtures/scss';
 	}
 
 	public function test_compiles_expanded_css(): void {
@@ -51,6 +56,6 @@ final class ScssPhpCompilerTest extends TestCase {
 		$config = new CompileConfig( [ $this->scssDir ] );
 
 		$this->expectException( ParserException::class );
-		( new ScssPhpCompiler() )->compile( dirname( __DIR__, 2 ) . '/fixtures/bad.scss', $config );
+		( new ScssPhpCompiler() )->compile( dirname( __DIR__ ) . '/fixtures/bad.scss', $config );
 	}
 }

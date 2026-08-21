@@ -147,8 +147,10 @@ final class Plugin {
 	}
 
 	/**
-	 * Extract the stored fingerprints relevant to a pair: keys prefixed with
-	 * "<pairId>:" plus (for pair 0) legacy unprefixed keys.
+	 * Extract the stored fingerprints relevant to a pair as `relPath → value`.
+	 * Stored keys are "&lt;pairId&gt;:&lt;relPath&gt;" (plus, for pair 0, legacy
+	 * unprefixed keys); the prefix is stripped so the returned map matches the
+	 * relPath keys Detector::changedEntries() looks up.
 	 *
 	 * @param array<array-key, mixed> $storedOption
 	 * @return array<string, string>
@@ -162,7 +164,9 @@ final class Plugin {
 			}
 			$isPrefixed = 0 === strpos( $key, $prefix );
 			$isLegacy   = 0 === $pairId && false === strpos( $key, ':' );
-			if ( $isPrefixed || $isLegacy ) {
+			if ( $isPrefixed ) {
+				$stored[ substr( $key, strlen( $prefix ) ) ] = $value;
+			} elseif ( $isLegacy ) {
 				$stored[ $key ] = $value;
 			}
 		}

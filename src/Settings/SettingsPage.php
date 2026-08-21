@@ -2,6 +2,7 @@
 
 namespace Beplus\ScssCompiler\Settings;
 
+use Beplus\ScssCompiler\Filesystem;
 use Beplus\ScssCompiler\Scanner;
 
 /**
@@ -176,9 +177,8 @@ final class SettingsPage {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
-		/** @var string $rawMsg */
-		$rawMsg              = isset( $_GET['msg'] ) && is_scalar( $_GET['msg'] ) ? (string) wp_unslash( $_GET['msg'] ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only flag from the wp_safe_redirect() query args; no state change happens here.
-		$msg                 = sanitize_key( $rawMsg );
+		/** @var string $msg */
+		$msg                 = isset( $_GET['msg'] ) && is_scalar( $_GET['msg'] ) ? sanitize_text_field( (string) wp_unslash( $_GET['msg'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only flag from the wp_safe_redirect() query args; no state change happens here.
 		$version             = get_option( 'beplus_scss_version', '' );
 		$version             = is_string( $version ) ? $version : '';
 		$settings            = self::currentSettings();
@@ -708,10 +708,10 @@ final class SettingsPage {
 		if ( '' === $path ) {
 			return true;
 		}
-		if ( ! is_dir( $path ) ) {
+		if ( ! Filesystem::isDir( $path ) ) {
 			return __( 'SCSS directory does not exist.', 'beplus-scss-compiler' );
 		}
-		if ( ! is_readable( $path ) ) {
+		if ( ! Filesystem::isReadable( $path ) ) {
 			return __( 'SCSS directory is not readable.', 'beplus-scss-compiler' );
 		}
 		if ( 0 < count( Scanner::scan( $path ) ) ) {
@@ -728,12 +728,10 @@ final class SettingsPage {
 		if ( '' === $path ) {
 			return true;
 		}
-		if ( ! is_dir( $path ) ) {
+		if ( ! Filesystem::isDir( $path ) ) {
 			return __( 'CSS directory does not exist.', 'beplus-scss-compiler' );
 		}
-		// Direct is_writable() is intentional: the layer contract (Plugin.md)
-		// keeps SettingsPage validation filesystem-based without WP_Filesystem.
-		if ( ! is_writable( $path ) ) {
+		if ( ! Filesystem::isWritable( $path ) ) {
 			return __( 'CSS directory is not writable.', 'beplus-scss-compiler' );
 		}
 

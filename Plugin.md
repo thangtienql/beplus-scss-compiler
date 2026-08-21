@@ -28,13 +28,14 @@ The plugin is split into independent layers connected through interfaces, each w
 └─────────────────────────────────────────────────┘
 ```
 
-**Principle**: `Scanner`, `Detector`, `Compiler`, `Writer`, and `Enqueue` are **WordPress-agnostic** — they receive paths/config as parameters and return results via value objects; only `Settings\SettingsPage` and `Plugin` (the bootstrap) touch WordPress. This keeps the pure layers unit-testable.
+**Principle**: `Scanner`, `Detector`, and `Enqueue` are **WordPress-agnostic** — they receive paths/config as parameters and return results via value objects; only `Settings\SettingsPage`, `Plugin` (the bootstrap), and the `Filesystem` helper touch WordPress. `Compiler` and `Writer` keep the same contract shape (paths/config in, value objects out) but read/write files through the `Filesystem` helper (a thin `WP_Filesystem` wrapper) so the plugin satisfies the Plugin Check "direct filesystem" guidance.
 
 **Namespace layout** (PSR-4, `Beplus\ScssCompiler\` → `src/`):
 
 ```
 src/
 ├── Plugin.php                        # bootstrap/glue — the only other WP-touch class
+├── Filesystem.php                    # WP_Filesystem wrapper (lazy init) — FS access helper
 ├── Settings/
 │   └── SettingsPage.php              # settings UI + sanitize + compile-now handler
 ├── Scanner.php
@@ -79,7 +80,7 @@ legacy values into `pairs[0]` when `pairs` is absent.
 
 **Validate on Save** (in the `sanitize_callback` of `register_setting`), per pair row:
 - Normalize each relative path: trim whitespace, strip leading/trailing `/`, collapse to a clean relative form. Reject `..` segments (path traversal) — the resolved absolute path must stay inside the theme directory.
-- Resolve `abs = get_stylesheet_directory() . '/' . $relative` and validate:
+- Resolve `abs = get_stylesheet_directory() . '/' . $relative` and validate (via `Filesystem`):
   - `scss_dir`: `is_dir()` → `is_readable()` → contains ≥ 1 `.scss` file that is not a `_*.scss` partial.
   - `css_dir`: `is_dir()` → `is_writable()`.
 - A row blank in both paths is skipped. On failure → `add_settings_error`, **previous value kept** for the invalid row.
@@ -107,6 +108,7 @@ ScssPhpCompiler   // default backend (scssphp library)
   - `setImportPaths( $config->getImportPaths() )`.
   - Formatter: `Compressed` when `minify`, else `Expanded`.
   - Source maps: `SourceMap::ENABLED` with `sourceMapBasepath` = `scss_dir`. scssphp appends the `/*# sourceMappingURL=... */` comment to the CSS itself; the Writer is not responsible for appending it.
+  - Reads the entry file through the `Filesystem` helper (`$wp_filesystem->get_contents()`) instead of `file_get_contents()`, satisfying the Plugin Check direct-filesystem guidance.
 - **Partials `_*.scss`**: never stand alone as entries; they are only used for imports.
 - **Exceptions**: scssphp parse/compile exceptions propagate out of `compile()`; the bootstrap glue catches them (see Section 8). The compiler itself must not print anything.
 
@@ -124,8 +126,10 @@ ScssPhpCompiler   // default backend (scssphp library)
 
 **Writer** — mirrors paths: `scss/main.scss` → `css_dir/main.css`; `scss/modules/card.scss` → `css_dir/modules/card.css`; creates missing subdirectories recursively.
 - `Writer::mirrorPath(string $entry, string $scssDir, string $cssDir): string` computes the destination (`relative` from `scssDir`, `.scss` → `.css`).
-- Writes **atomically**: temp file `.<basename>.tmp.<uniqid>` in the destination directory, then `rename()`. A separate atomic write stores the `.map` file at the destination path plus `.map` when source maps are enabled.
-- The Writer (and the settings dir validation) uses **direct filesystem calls** (`is_dir`, `mkdir`, `rename`, `unlink`, `is_writable`) by design — it is a WordPress-agnostic layer and may not call `WP_Filesystem`, which also does not reliably support atomic `rename`. This is an accepted deviation from the Plugin Check "direct filesystem" guidance.
+- Writes **atomically when the transport supports it**: a temp file `.<basename>.tmp.<uniqid>` is written in the destination directory, then moved over the target via `Filesystem::move()` with overwrite enabled (an atomic-rename attempt where supported; on transports that lack atomic `rename` the destination is deleted before the move, so a mid-write failure can lose the previous CSS). A separate write stores the `.map` file at the destination path plus `.map` when source maps are enabled.
+- All filesystem access goes through the `Filesystem` helper (a thin `WP_Filesystem` wrapper) rather than direct PHP calls (`mkdir`, `rename`, `unlink`, `get_contents`, `put_contents`, `is_writable`), so the plugin passes the Plugin Check "direct filesystem" guidance. The previous deviation note no longer applies.
+
+**Filesystem helper** — `Filesystem` is the single WordPress-touching access point for file operations. It lazily initializes the transport: it tries `WP_Filesystem()` first (admin path, where the class files are loaded), and when that is unavailable — notably on the **frontend** (`wp-admin/includes/file.php` is not loaded there, so `WP_Filesystem()` does not exist, and auto-compile runs in `wp_enqueue_scripts`) — it falls back to loading `class-wp-filesystem-base.php` + `class-wp-filesystem-direct.php` from `ABSPATH` and instantiating `WP_Filesystem_Direct` directly. This guarantees file operations work in every context while staying inside the WP_Filesystem abstraction (PCP-clean). It forwards the calls the plugin uses (`is_dir`, `is_readable`, `is_writable`, `mkdir`, `get_contents`, `put_contents`, `move`, `delete`). `move()` passes `overwrite=true` so an existing compiled CSS file is replaced on recompile; on transports that lack atomic rename this costs a delete-before-write (no longer atomic there) — accepted trade-off for PCP compliance and correct overwrite behaviour. Writer, `ScssPhpCompiler`, and `SettingsPage` validation route their FS work through it; the pure layers (`Scanner`, `Detector`, `Enqueue`) stay untouched.
 
 ## 6. Enqueue + Delivery
 
@@ -200,8 +204,8 @@ Domain Path: /languages
 - Repo asset build: `npm run build` compiles frontend assets (JS/CSS) — a no-op placeholder today; it never touches the release zip. Packaging is a separate step: `npm run build:package`.
 - i18n pot: `composer i18n:pot` → `wp i18n make-pot . languages/beplus-scss-compiler.pot`.
 - **Tests**:
-  - Unit (`composer test` → `phpunit --testsuite unit`): pure layers — `Scanner`, `Detector`, `Writer` (temp dirs), `Enqueue`, `Value\CompileConfig`/`CompiledResult`, `ScssPhpCompiler` (real scssphp, fixtures under `tests/fixtures/`), fingerprint.
-  - Integration (`composer test:integration` → `phpunit --testsuite integration`, run inside `wp-env`): settings save/validate, compile-now, registry maintenance, enqueue handles/URLs (gated on `enqueue=true`), the six filters.
+  - Unit (`composer test` → `phpunit --testsuite unit`): pure layers — `Scanner`, `Detector`, `Enqueue`, `Value\CompileConfig`/`CompiledResult`, `Writer::mirrorPath` (pure path mapping), and the `mirroredFileName` path logic of `ScssPhpCompiler` (no FS).
+  - Integration (`composer test:integration` → `phpunit --testsuite integration`, run inside `wp-env`): settings save/validate, compile-now, registry maintenance, enqueue handles/URLs (gated on `enqueue=true`), the six filters, plus the FS-backed behaviour of `Writer` (real writes in temp dirs) and `ScssPhpCompiler` (real scssphp on `tests/fixtures/`) — these need WordPress because they now go through the `Filesystem`/`WP_Filesystem` helper.
 
 ---
 

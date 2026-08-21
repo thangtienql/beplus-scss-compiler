@@ -49,9 +49,12 @@
 
 	<!-- The Scanner/Detector/Compiler/Writer/Value layers are WordPress-agnostic by
 	     design (Plugin.md): they may not call wp_* functions, so the Core rules that
-	     force WordPress idioms or Core-only style on them are lifted for src/ and tests/. -->
+	     force WordPress idioms or Core-only style on them are lifted for src/ and tests/.
+	     NOTE: WordPress.WP.AlternativeFunctions (direct filesystem calls) is NOT lifted
+	     for src/ — Writer/Compiler/SettingsPage route FS work through the Filesystem
+	     helper so the plugin passes the Plugin Check "direct filesystem" guidance.
+	     Test suites still use direct FS for setup/teardown, so it stays lifted there. -->
 	<rule ref="WordPress.WP.AlternativeFunctions">
-		<exclude-pattern>/src/*</exclude-pattern>
 		<exclude-pattern>/tests/*</exclude-pattern>
 	</rule>
 	<rule ref="WordPress.PHP.NoSilencedErrors">

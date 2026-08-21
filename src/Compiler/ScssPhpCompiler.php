@@ -2,6 +2,7 @@
 
 namespace Beplus\ScssCompiler\Compiler;
 
+use Beplus\ScssCompiler\Filesystem;
 use Beplus\ScssCompiler\Value\CompileConfig;
 use Beplus\ScssCompiler\Value\CompiledResult;
 use ScssPhp\ScssPhp\Compiler;
@@ -27,7 +28,7 @@ final class ScssPhpCompiler implements CompilerInterface {
 			);
 		}
 
-		$content = (string) file_get_contents( $entryFile );
+		$content = (string) Filesystem::getContents( $entryFile );
 		$result  = $compiler->compileString( $content, $entryFile );
 
 		return new CompiledResult( $result->getCss(), $result->getSourceMap(), $fileName );
