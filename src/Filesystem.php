@@ -47,6 +47,16 @@ final class Filesystem {
 				if ( file_exists( $base ) && file_exists( $direct ) ) {
 					require_once $base;   // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingCustomConstant -- Core file load via ABSPATH.
 					require_once $direct; // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingCustomConstant -- Core file load via ABSPATH.
+					// WP_Filesystem_Direct::chmod() reads FS_CHMOD_DIR / FS_CHMOD_FILE, which
+					// WP_Filesystem() normally defines (in wp-admin/includes/file.php). On the
+					// frontend that function does not exist, so we must ensure the constants are
+					// present before instantiating the transport. Values mirror WordPress core.
+					if ( ! defined( 'FS_CHMOD_DIR' ) ) {
+						define( 'FS_CHMOD_DIR', ( fileperms( ABSPATH ) & 0777 | 0755 ) );
+					}
+					if ( ! defined( 'FS_CHMOD_FILE' ) ) {
+						define( 'FS_CHMOD_FILE', ( fileperms( ABSPATH . 'index.php' ) & 0777 | 0644 ) );
+					}
 					self::$fs = new \WP_Filesystem_Direct( null );
 
 					return self::$fs;
