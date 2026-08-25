@@ -569,6 +569,58 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		self::assertStringNotContainsString( 'notice-error', $html );
 	}
 
+	public function test_sanitize_rejects_duplicate_css_dir_and_adds_settings_error(): void {
+		$page = new SettingsPage();
+		mkdir( $this->themeDir . '/' . $this->rel . '/scss2', 0777, true );
+		file_put_contents( $this->themeDir . '/' . $this->rel . '/scss2/main.scss', '$c: #000;' );
+
+		$out = $page->sanitize(
+			[
+				'pairs' => [
+					[
+						'scss_dir' => $this->rel . '/scss',
+						'css_dir'  => $this->rel . '/css',
+					],
+					[
+						'scss_dir' => $this->rel . '/scss2',
+						'css_dir'  => $this->rel . '/css',
+					],
+				],
+			]
+		);
+
+		self::assertCount( 1, $out['pairs'] );
+		self::assertSame( $this->rel . '/css', $out['pairs'][0]['css_dir'] );
+
+		$errors = get_settings_errors( SettingsPage::OPTION_NAME );
+		$codes  = array_column( $errors, 'code' );
+		self::assertContains( 'duplicate_css_dir_1', $codes );
+	}
+
+	public function test_current_settings_dedupes_legacy_duplicate_pairs(): void {
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs' => [
+					[
+						'scss_dir' => $this->rel . '/scss',
+						'css_dir'  => $this->rel . '/css',
+					],
+					[
+						'scss_dir' => $this->rel . '/scss2',
+						'css_dir'  => $this->rel . '/css',
+					],
+				],
+			]
+		);
+
+		$settings = SettingsPage::currentSettings();
+
+		self::assertCount( 1, $settings['pairs'] );
+		self::assertSame( $this->rel . '/scss', $settings['pairs'][0]['scss_dir'] );
+		self::assertSame( $this->rel . '/css', $settings['pairs'][0]['css_dir'] );
+	}
+
 	private static function rrmdir( string $dir ): void {
 		if ( ! is_dir( $dir ) ) {
 			return;

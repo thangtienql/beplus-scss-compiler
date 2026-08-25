@@ -61,13 +61,16 @@ final class SettingsPage {
 
 	/**
 	 * Normalize stored pairs, migrating legacy scss_dir/css_dir keys into the
-	 * first pair when no pairs key exists, and dropping fully-blank rows.
+	 * first pair when no pairs key exists, dropping fully-blank rows, and
+	 * deduping css_dirs (case-insensitive, first occurrence wins) so pairs
+	 * saved by older versions are neutralized without a migration.
 	 *
 	 * @param array<mixed> $stored
 	 * @return array<int, ScssPair>
 	 */
 	private static function storedPairs( array $stored ): array {
-		$pairs = [];
+		$pairs   = [];
+		$seenCss = [];
 		if ( isset( $stored['pairs'] ) && is_array( $stored['pairs'] ) ) {
 			foreach ( $stored['pairs'] as $row ) {
 				if ( ! is_array( $row ) ) {
@@ -78,7 +81,12 @@ final class SettingsPage {
 				if ( '' === $scss && '' === $css ) {
 					continue;
 				}
-				$pairs[] = [
+				$cssKey = strtolower( $css );
+				if ( isset( $seenCss[ $cssKey ] ) ) {
+					continue;
+				}
+				$seenCss[ $cssKey ] = true;
+				$pairs[]            = [
 					'scss_dir' => $scss,
 					'css_dir'  => $css,
 				];
@@ -579,8 +587,9 @@ final class SettingsPage {
 	 * @return array{pairs:array<int, ScssPair>, errors:array<int, array{index:int, code:string}>}
 	 */
 	public static function sanitizePairs( array $inputPairs, array $previousPairs, callable $scssValidator, callable $cssValidator ): array {
-		$pairs  = [];
-		$errors = [];
+		$pairs       = [];
+		$errors      = [];
+		$seenCssDirs = [];
 
 		foreach ( $inputPairs as $index => $row ) {
 			if ( ! is_array( $row ) ) {
@@ -599,9 +608,7 @@ final class SettingsPage {
 					'index' => $index,
 					'code'  => '' === $scss ? 'bad_scss_dir_' . $index : 'bad_css_dir_' . $index,
 				];
-				if ( isset( $previousPairs[ $index ] ) ) {
-					$pairs[] = $previousPairs[ $index ];
-				}
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs );
 				continue;
 			}
 			$scssErr = self::hasDotDotSegment( $scss ) || ! $scssValidator( $scss );
@@ -619,12 +626,19 @@ final class SettingsPage {
 				];
 			}
 			if ( $scssErr || $cssErr ) {
-				if ( isset( $previousPairs[ $index ] ) ) {
-					$pairs[] = $previousPairs[ $index ];
-				}
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs );
 				continue;
 			}
-			$pairs[] = [
+			if ( isset( $seenCssDirs[ strtolower( $css ) ] ) ) {
+				$errors[] = [
+					'index' => $index,
+					'code'  => 'duplicate_css_dir_' . $index,
+				];
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs );
+				continue;
+			}
+			$seenCssDirs[ strtolower( $css ) ] = $index;
+			$pairs[]                           = [
 				'scss_dir' => $scss,
 				'css_dir'  => $css,
 			];
@@ -634,6 +648,29 @@ final class SettingsPage {
 			'pairs'  => $pairs,
 			'errors' => $errors,
 		];
+	}
+
+	/**
+	 * Append the row's previous value, unless it was never stored or its css_dir
+	 * duplicates one already accepted (case-insensitive) — dropping avoids
+	 * re-introducing the very duplication being rejected.
+	 *
+	 * @param array<int, ScssPair> $previousPairs
+	 * @param int|string           $index
+	 * @param array<int, ScssPair> $pairs
+	 * @param array<string, mixed> $seenCssDirs
+	 */
+	private static function revertPair( array $previousPairs, $index, array &$pairs, array &$seenCssDirs ): void {
+		if ( ! isset( $previousPairs[ $index ] ) ) {
+			return;
+		}
+		$previous = $previousPairs[ $index ];
+		$css      = strtolower( $previous['css_dir'] );
+		if ( '' === $css || isset( $seenCssDirs[ $css ] ) ) {
+			return;
+		}
+		$seenCssDirs[ $css ] = $index;
+		$pairs[]             = $previous;
 	}
 
 	/**
@@ -664,10 +701,16 @@ final class SettingsPage {
 			);
 			$output['pairs'] = $result['pairs'];
 			foreach ( $result['errors'] as $error ) {
-				$message = strpos( $error['code'], 'bad_scss_dir' ) === 0
-					? __( 'SCSS directory is not valid.', 'beplus-scss-compiler' )
-					: __( 'CSS directory is not valid.', 'beplus-scss-compiler' );
-				add_settings_error( self::OPTION_NAME, $error['code'], $message );
+				if ( strpos( $error['code'], 'bad_scss_dir' ) === 0 ) {
+					$message = __( 'SCSS directory is not valid.', 'beplus-scss-compiler' );
+				} elseif ( strpos( $error['code'], 'duplicate_css_dir' ) === 0 ) {
+					$message = __( 'CSS destination directory must be unique across pairs.', 'beplus-scss-compiler' );
+				} else {
+					$message = __( 'CSS directory is not valid.', 'beplus-scss-compiler' );
+				}
+				if ( function_exists( 'add_settings_error' ) ) {
+					add_settings_error( self::OPTION_NAME, $error['code'], $message );
+				}
 			}
 		} else {
 			$output['pairs'] = $prev;

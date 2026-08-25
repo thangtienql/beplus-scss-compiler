@@ -193,4 +193,261 @@ final class SettingsPagePairsTest extends TestCase {
 		self::assertSame( [], $result['pairs'] );
 		self::assertSame( [], $result['errors'] );
 	}
+
+	public function test_duplicate_css_dir_is_rejected_on_subsequent_pair(): void {
+		$result = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			[],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertCount( 1, $result['errors'] );
+		self::assertSame( 1, $result['errors'][0]['index'] );
+		self::assertSame( 'duplicate_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_duplicate_css_dir_reverts_to_previous_pair_if_available(): void {
+		$result = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'admin/css',
+				],
+			],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'admin/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertCount( 1, $result['errors'] );
+		self::assertSame( 'duplicate_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_unique_css_dirs_across_pairs_are_accepted(): void {
+		$result = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'theme/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'admin/css',
+				],
+			],
+			[],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+
+		self::assertCount( 2, $result['pairs'] );
+		self::assertSame( [], $result['errors'] );
+	}
+
+	public function test_duplicate_revert_that_reintroduces_duplicate_drops_row(): void {
+		$result = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'theme/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertSame( 'duplicate_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_invalid_row_revert_that_reintroduces_duplicate_drops_row(): void {
+		$result = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'bad/css',
+				],
+			],
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			static function (): bool {
+				return true;
+			},
+			static function ( string $path ): bool {
+				return 'bad/css' !== $path;
+			}
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertSame( 'bad_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_duplicate_css_dir_comparison_is_case_insensitive(): void {
+		$result = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'admin/scss',
+					'css_dir'  => 'assets/CSS',
+				],
+			],
+			[],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+
+		self::assertCount( 1, $result['pairs'] );
+		self::assertSame( 'duplicate_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_stored_pairs_dedupe_duplicate_css_dirs_keeping_first(): void {
+		$method = new \ReflectionMethod( SettingsPage::class, 'storedPairs' );
+		if ( PHP_VERSION_ID < 80100 ) {
+			$method->setAccessible( true );
+		}
+
+		$result = $method->invoke(
+			null,
+			[
+				'pairs' => [
+					[
+						'scss_dir' => 'theme/scss',
+						'css_dir'  => 'assets/css',
+					],
+					[
+						'scss_dir' => 'admin/scss',
+						'css_dir'  => 'assets/CSS',
+					],
+					[
+						'scss_dir' => 'other/scss',
+						'css_dir'  => 'other/css',
+					],
+				],
+			]
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'other/scss',
+					'css_dir'  => 'other/css',
+				],
+			],
+			$result
+		);
+	}
 }
