@@ -46,6 +46,32 @@ final class Enqueue {
 	}
 
 	/**
+	 * Drop later entries whose URL was already seen, keeping the first
+	 * occurrence and preserving order. Non-Style entries pass through; the
+	 * glue's `instanceof` guard still applies to them.
+	 *
+	 * @param array<mixed> $styles
+	 * @return array<mixed>
+	 */
+	public static function uniqueByUrl( array $styles ): array {
+		$unique = [];
+		$seen   = [];
+
+		foreach ( $styles as $style ) {
+			if ( $style instanceof Style ) {
+				$url = $style->getUrl();
+				if ( isset( $seen[ $url ] ) ) {
+					continue;
+				}
+				$seen[ $url ] = true;
+			}
+			$unique[] = $style;
+		}
+
+		return $unique;
+	}
+
+	/**
 	 * @param string[] $registeredFiles
 	 */
 	private static function isRegistered( string $relPath, array $registeredFiles, string $prefix, int $pairId ): bool {

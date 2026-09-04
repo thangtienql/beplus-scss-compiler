@@ -4,6 +4,7 @@ namespace Beplus\ScssCompiler\Settings;
 
 use Beplus\ScssCompiler\Filesystem;
 use Beplus\ScssCompiler\Scanner;
+use Beplus\ScssCompiler\Writer;
 
 /**
  * @phpstan-type ScssPair array{scss_dir:string, css_dir:string}
@@ -584,12 +585,14 @@ final class SettingsPage {
 	 * @param array<int, ScssPair> $previousPairs previous stored pairs (per-row fallback on error)
 	 * @param callable(string):bool $scssValidator
 	 * @param callable(string):bool $cssValidator
+	 * @param callable(string,string):array<int, string> $destinationResolver absolute destination files of a candidate pair
 	 * @return array{pairs:array<int, ScssPair>, errors:array<int, array{index:int, code:string}>}
 	 */
-	public static function sanitizePairs( array $inputPairs, array $previousPairs, callable $scssValidator, callable $cssValidator ): array {
+	public static function sanitizePairs( array $inputPairs, array $previousPairs, callable $scssValidator, callable $cssValidator, callable $destinationResolver ): array {
 		$pairs       = [];
 		$errors      = [];
 		$seenCssDirs = [];
+		$seenDests   = [];
 
 		foreach ( $inputPairs as $index => $row ) {
 			if ( ! is_array( $row ) ) {
@@ -608,7 +611,7 @@ final class SettingsPage {
 					'index' => $index,
 					'code'  => '' === $scss ? 'bad_scss_dir_' . $index : 'bad_css_dir_' . $index,
 				];
-				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs );
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs, $seenDests, $destinationResolver );
 				continue;
 			}
 			$scssErr = self::hasDotDotSegment( $scss ) || ! $scssValidator( $scss );
@@ -626,7 +629,7 @@ final class SettingsPage {
 				];
 			}
 			if ( $scssErr || $cssErr ) {
-				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs );
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs, $seenDests, $destinationResolver );
 				continue;
 			}
 			if ( isset( $seenCssDirs[ strtolower( $css ) ] ) ) {
@@ -634,11 +637,21 @@ final class SettingsPage {
 					'index' => $index,
 					'code'  => 'duplicate_css_dir_' . $index,
 				];
-				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs );
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs, $seenDests, $destinationResolver );
 				continue;
 			}
-			$seenCssDirs[ strtolower( $css ) ] = $index;
-			$pairs[]                           = [
+			$dests = $destinationResolver( $scss, $css );
+			if ( self::intersects( $dests, $seenDests ) ) {
+				$errors[] = [
+					'index' => $index,
+					'code'  => 'overlapping_css_dir_' . $index,
+				];
+				self::revertPair( $previousPairs, $index, $pairs, $seenCssDirs, $seenDests, $destinationResolver );
+				continue;
+			}
+			$seenCssDirs[ strtolower( $css ) ] = (int) $index;
+			self::registerDests( $seenDests, $dests, (int) $index );
+			$pairs[] = [
 				'scss_dir' => $scss,
 				'css_dir'  => $css,
 			];
@@ -651,26 +664,60 @@ final class SettingsPage {
 	}
 
 	/**
-	 * Append the row's previous value, unless it was never stored or its css_dir
-	 * duplicates one already accepted (case-insensitive) — dropping avoids
-	 * re-introducing the very duplication being rejected.
+	 * Append the row's previous value, unless it was never stored or would
+	 * re-introduce a conflict with an already-accepted pair — a duplicate
+	 * `css_dir` (case-insensitive) or overlapping output files — in which
+	 * case the row is dropped so a revert never resurrects the very conflict
+	 * being rejected.
 	 *
 	 * @param array<int, ScssPair> $previousPairs
 	 * @param int|string           $index
 	 * @param array<int, ScssPair> $pairs
-	 * @param array<string, mixed> $seenCssDirs
+	 * @param array<string, int>   $seenCssDirs
+	 * @param array<string, int>   $seenDests
+	 * @param callable(string,string):array<int, string> $destinationResolver
 	 */
-	private static function revertPair( array $previousPairs, $index, array &$pairs, array &$seenCssDirs ): void {
+	private static function revertPair( array $previousPairs, $index, array &$pairs, array &$seenCssDirs, array &$seenDests, callable $destinationResolver ): void {
 		if ( ! isset( $previousPairs[ $index ] ) ) {
 			return;
 		}
 		$previous = $previousPairs[ $index ];
+		$scss     = $previous['scss_dir'];
 		$css      = strtolower( $previous['css_dir'] );
 		if ( '' === $css || isset( $seenCssDirs[ $css ] ) ) {
 			return;
 		}
-		$seenCssDirs[ $css ] = $index;
-		$pairs[]             = $previous;
+		$dests = $destinationResolver( $scss, $previous['css_dir'] );
+		if ( self::intersects( $dests, $seenDests ) ) {
+			return;
+		}
+		$seenCssDirs[ $css ] = (int) $index;
+		self::registerDests( $seenDests, $dests, (int) $index );
+		$pairs[] = $previous;
+	}
+
+	/**
+	 * @param string[]          $dests
+	 * @param array<string,int> $seenDests
+	 */
+	private static function intersects( array $dests, array $seenDests ): bool {
+		foreach ( $dests as $dest ) {
+			if ( isset( $seenDests[ $dest ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * @param string[]          $dests
+	 * @param array<string,int> $seenDests
+	 */
+	private static function registerDests( array &$seenDests, array $dests, int $index ): void {
+		foreach ( $dests as $dest ) {
+			$seenDests[ $dest ] = $index;
+		}
 	}
 
 	/**
@@ -697,6 +744,26 @@ final class SettingsPage {
 					$validated = $this->validateCssDir( self::absPath( $rel ) );
 
 					return true === $validated;
+				},
+				function ( string $scss, string $css ): array {
+					$scssAbs = self::absPath( $scss );
+					$cssAbs  = self::absPath( $css );
+					// Guard: a revert can resolve a previous pair whose directories
+					// no longer exist; Scanner::scan() would throw on a missing dir.
+					if ( ! Filesystem::isDir( $scssAbs ) || ! Filesystem::isDir( $cssAbs ) ) {
+						return [];
+					}
+					// realpath() canonicalises `//`, `.` and symlinked css_dir
+					// variants so they compare equal to the plain spelling.
+					$cssReal = realpath( $cssAbs );
+					$cssRoot = false !== $cssReal ? $cssReal : $cssAbs;
+					$dests   = [];
+					foreach ( Scanner::scan( $scssAbs ) as $entry ) {
+						$rel     = Writer::mirrorPath( $entry, $scssAbs, $cssRoot );
+						$dests[] = $cssRoot . '/' . ltrim( $rel, '/' );
+					}
+
+					return $dests;
 				}
 			);
 			$output['pairs'] = $result['pairs'];
@@ -705,6 +772,8 @@ final class SettingsPage {
 					$message = __( 'SCSS directory is not valid.', 'beplus-scss-compiler' );
 				} elseif ( strpos( $error['code'], 'duplicate_css_dir' ) === 0 ) {
 					$message = __( 'CSS destination directory must be unique across pairs.', 'beplus-scss-compiler' );
+				} elseif ( strpos( $error['code'], 'overlapping_css_dir' ) === 0 ) {
+					$message = __( 'CSS destination directory overlaps the output of another pair.', 'beplus-scss-compiler' );
 				} else {
 					$message = __( 'CSS directory is not valid.', 'beplus-scss-compiler' );
 				}

@@ -82,6 +82,7 @@ final class Plugin {
 		if ( ! is_array( $styles ) ) {
 			return;
 		}
+		$styles = Enqueue::uniqueByUrl( $styles );
 		foreach ( $styles as $style ) {
 			if ( $style instanceof Style ) {
 				wp_enqueue_style( $style->getHandle(), $style->getUrl(), [], (string) $style->getVersion() );

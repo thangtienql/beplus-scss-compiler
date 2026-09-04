@@ -25,7 +25,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -63,7 +64,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -96,7 +98,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -138,7 +141,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function ( string $path ): bool {
 				return 'bad/css' !== $path;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -172,7 +176,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame( [], $result['pairs'] );
@@ -187,7 +192,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame( [], $result['pairs'] );
@@ -212,7 +218,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -256,7 +263,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -294,7 +302,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertCount( 2, $result['pairs'] );
@@ -328,7 +337,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -370,7 +380,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function ( string $path ): bool {
 				return 'bad/css' !== $path;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertSame(
@@ -403,7 +414,8 @@ final class SettingsPagePairsTest extends TestCase {
 			},
 			static function (): bool {
 				return true;
-			}
+			},
+			self::noDests()
 		);
 
 		self::assertCount( 1, $result['pairs'] );
@@ -449,5 +461,211 @@ final class SettingsPagePairsTest extends TestCase {
 			],
 			$result
 		);
+	}
+
+	public function test_overlapping_outputs_are_rejected_on_later_pair(): void {
+		$resolver = static function ( string $scss, string $css ): array {
+			if ( 'assets/css' === $css ) {
+				return [ '/theme/assets/css/card.css', '/theme/assets/css/modules/card.css' ];
+			}
+			if ( 'assets/css/modules' === $css ) {
+				return [ '/theme/assets/css/modules/card.css' ];
+			}
+
+			return [];
+		};
+		$result   = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'assets/css/modules',
+				],
+			],
+			[],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			},
+			$resolver
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertCount( 1, $result['errors'] );
+		self::assertSame( 1, $result['errors'][0]['index'] );
+		self::assertSame( 'overlapping_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_nested_css_dirs_with_disjoint_outputs_are_accepted(): void {
+		$resolver = static function ( string $scss, string $css ): array {
+			if ( 'assets/css' === $css ) {
+				return [ '/theme/assets/css/card.css' ];
+			}
+			if ( 'assets/css/modules' === $css ) {
+				return [ '/theme/assets/css/modules/card.css' ];
+			}
+
+			return [];
+		};
+		$result   = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'assets/css/modules',
+				],
+			],
+			[],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			},
+			$resolver
+		);
+
+		self::assertCount( 2, $result['pairs'] );
+		self::assertSame( [], $result['errors'] );
+	}
+
+	public function test_overlapping_row_reverts_to_previous_pair_when_previous_is_disjoint(): void {
+		$resolver = static function ( string $scss, string $css ): array {
+			if ( 'assets/css' === $css ) {
+				return [ '/theme/assets/css/modules/card.css' ];
+			}
+			if ( 'assets/css/modules' === $css ) {
+				return [ '/theme/assets/css/modules/card.css' ];
+			}
+			if ( 'blocks/css' === $css ) {
+				return [ '/theme/blocks/css/card.css' ];
+			}
+
+			return [];
+		};
+		$result   = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'assets/css/modules',
+				],
+			],
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'blocks/css',
+				],
+			],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			},
+			$resolver
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'blocks/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertSame( 'overlapping_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	public function test_overlap_revert_that_reintroduces_overlap_drops_row(): void {
+		$resolver = static function ( string $scss, string $css ): array {
+			if ( 'assets/css' === $css ) {
+				return [ '/theme/assets/css/modules/card.css' ];
+			}
+			if ( 'assets/css/modules' === $css ) {
+				return [ '/theme/assets/css/modules/card.css' ];
+			}
+
+			return [];
+		};
+		$result   = SettingsPage::sanitizePairs(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'assets/css/modules',
+				],
+			],
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+				[
+					'scss_dir' => 'blocks/scss',
+					'css_dir'  => 'assets/css/modules',
+				],
+			],
+			static function (): bool {
+				return true;
+			},
+			static function (): bool {
+				return true;
+			},
+			$resolver
+		);
+
+		self::assertSame(
+			[
+				[
+					'scss_dir' => 'theme/scss',
+					'css_dir'  => 'assets/css',
+				],
+			],
+			$result['pairs']
+		);
+		self::assertSame( 'overlapping_css_dir_1', $result['errors'][0]['code'] );
+	}
+
+	/**
+	 * No-op destination resolver: returns no files, so the output-overlap
+	 * check never fires. Used by tests that only exercise the other rules.
+	 */
+	private static function noDests(): callable {
+		// phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter -- Parameters are part of the injected destinationResolver contract.
+		return static function ( string $scss, string $css ): array {
+			return [];
+		};
 	}
 }

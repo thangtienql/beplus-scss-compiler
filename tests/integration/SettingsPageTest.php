@@ -597,6 +597,37 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		self::assertContains( 'duplicate_css_dir_1', $codes );
 	}
 
+	public function test_sanitize_rejects_overlapping_outputs_and_adds_settings_error(): void {
+		$page = new SettingsPage();
+		mkdir( $this->themeDir . '/' . $this->rel . '/scssA/modules', 0777, true );
+		mkdir( $this->themeDir . '/' . $this->rel . '/scssB', 0777, true );
+		mkdir( $this->themeDir . '/' . $this->rel . '/css/modules', 0777, true );
+		file_put_contents( $this->themeDir . '/' . $this->rel . '/scssA/modules/card.scss', '$c: #fff; .a { color: $c; }' );
+		file_put_contents( $this->themeDir . '/' . $this->rel . '/scssB/card.scss', '$c: #000; .b { color: $c; }' );
+
+		$out = $page->sanitize(
+			[
+				'pairs' => [
+					[
+						'scss_dir' => $this->rel . '/scssA',
+						'css_dir'  => $this->rel . '/css',
+					],
+					[
+						'scss_dir' => $this->rel . '/scssB',
+						'css_dir'  => $this->rel . '/css/modules',
+					],
+				],
+			]
+		);
+
+		self::assertCount( 1, $out['pairs'] );
+		self::assertSame( $this->rel . '/css', $out['pairs'][0]['css_dir'] );
+
+		$errors = get_settings_errors( SettingsPage::OPTION_NAME );
+		$codes  = array_column( $errors, 'code' );
+		self::assertContains( 'overlapping_css_dir_1', $codes );
+	}
+
 	public function test_current_settings_dedupes_legacy_duplicate_pairs(): void {
 		update_option(
 			SettingsPage::OPTION_NAME,

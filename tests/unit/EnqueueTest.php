@@ -91,4 +91,27 @@ final class EnqueueTest extends TestCase {
 		}
 		self::fail( 'handle not found: ' . $handle );
 	}
+
+	public function test_unique_by_url_keeps_first_and_preserves_order(): void {
+		$styles = Enqueue::uniqueByUrl(
+			[
+				new Style( 'beplus-scss-0-modules-card', 'https://example.test/assets/css/modules/card.css', 1 ),
+				new Style( 'beplus-scss-1-card', 'https://example.test/assets/css/modules/card.css', 2 ),
+				new Style( 'beplus-scss-0-main', 'https://example.test/assets/css/main.css', 3 ),
+			]
+		);
+
+		self::assertCount( 2, $styles );
+		self::assertInstanceOf( Style::class, $styles[0] );
+		self::assertInstanceOf( Style::class, $styles[1] );
+		self::assertSame( 'beplus-scss-0-modules-card', $styles[0]->getHandle() );
+		self::assertSame( 'beplus-scss-0-main', $styles[1]->getHandle() );
+	}
+
+	public function test_unique_by_url_passes_through_non_style_entries(): void {
+		$style   = new Style( 'beplus-scss-0-main', 'https://example.test/assets/css/main.css', 1 );
+		$results = Enqueue::uniqueByUrl( [ $style, 'not-a-style' ] );
+
+		self::assertSame( [ $style, 'not-a-style' ], $results );
+	}
 }
