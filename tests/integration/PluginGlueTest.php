@@ -74,6 +74,7 @@ final class PluginGlueTest extends \WP_UnitTestCase {
 		if ( is_admin() ) {
 			$this->markTestSkipped( 'Frontend context required.' );
 		}
+		wp_set_current_user( 1 );
 		$theme = get_stylesheet_directory();
 		$rel   = $this->prepareThemeDirs();
 		update_option(
@@ -149,6 +150,79 @@ final class PluginGlueTest extends \WP_UnitTestCase {
 		$plugin->onEnqueueScripts();
 		self::assertArrayHasKey( 'beplus-scss-0-main', wp_styles()->registered );
 		self::assertArrayHasKey( 'beplus-scss-1-main', wp_styles()->registered );
+
+		self::rrmdir( $theme . '/' . $rel );
+	}
+
+	public function test_auto_compile_is_skipped_for_anonymous_visitors(): void {
+		if ( is_admin() ) {
+			$this->markTestSkipped( 'Frontend context required.' );
+		}
+		$theme = get_stylesheet_directory();
+		$rel   = 'beplus-glue-' . uniqid();
+		mkdir( $theme . '/' . $rel . '/scss', 0777, true );
+		mkdir( $theme . '/' . $rel . '/css', 0777, true );
+		file_put_contents( $theme . '/' . $rel . '/scss/main.scss', '$c: #fff; .x { color: $c; }' );
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs'        => [
+					[
+						'scss_dir' => $rel . '/scss',
+						'css_dir'  => $rel . '/css',
+					],
+				],
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => true,
+			]
+		);
+		update_option( Plugin::FINGERPRINTS_OPTION, [ '0:main.scss' => 'stored-fingerprint' ] );
+		wp_set_current_user( 0 );
+
+		$plugin = new Plugin();
+		$plugin->onEnqueueScripts();
+
+		self::assertFileDoesNotExist( $theme . '/' . $rel . '/css/main.css' );
+		self::assertSame( [ '0:main.scss' => 'stored-fingerprint' ], get_option( Plugin::FINGERPRINTS_OPTION ) );
+		self::assertArrayNotHasKey( 'beplus-scss-0-main', wp_styles()->registered );
+
+		self::rrmdir( $theme . '/' . $rel );
+	}
+
+	public function test_auto_compile_runs_for_logged_in_admin(): void {
+		if ( is_admin() ) {
+			$this->markTestSkipped( 'Frontend context required.' );
+		}
+		$theme = get_stylesheet_directory();
+		$rel   = 'beplus-glue-' . uniqid();
+		mkdir( $theme . '/' . $rel . '/scss', 0777, true );
+		mkdir( $theme . '/' . $rel . '/css', 0777, true );
+		file_put_contents( $theme . '/' . $rel . '/scss/main.scss', '$c: #fff; .x { color: $c; }' );
+		update_option(
+			SettingsPage::OPTION_NAME,
+			[
+				'pairs'        => [
+					[
+						'scss_dir' => $rel . '/scss',
+						'css_dir'  => $rel . '/css',
+					],
+				],
+				'compile_mode' => 'auto',
+				'source_map'   => false,
+				'minify'       => false,
+				'enqueue'      => true,
+			]
+		);
+		update_option( Plugin::FINGERPRINTS_OPTION, [ '0:main.scss' => 'stored-fingerprint' ] );
+		wp_set_current_user( 1 );
+
+		$plugin = new Plugin();
+		$plugin->onEnqueueScripts();
+
+		self::assertFileExists( $theme . '/' . $rel . '/css/main.css' );
+		self::assertArrayHasKey( 'beplus-scss-0-main', wp_styles()->registered );
 
 		self::rrmdir( $theme . '/' . $rel );
 	}

@@ -50,7 +50,7 @@ final class Plugin {
 			return;
 		}
 
-		if ( 'auto' === $settings['compile_mode'] && ! self::$autoCompiled ) {
+		if ( 'auto' === $settings['compile_mode'] && ! self::$autoCompiled && current_user_can( 'manage_options' ) ) {
 			self::$autoCompiled = true;
 			foreach ( $settings['pairs'] as $pairId => $pair ) {
 				$scssDir = SettingsPage::absPath( $pair['scss_dir'] );
